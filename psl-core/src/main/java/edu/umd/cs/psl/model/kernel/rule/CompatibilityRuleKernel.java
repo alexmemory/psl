@@ -22,18 +22,21 @@ import edu.umd.cs.psl.model.atom.GroundAtom;
 import edu.umd.cs.psl.model.formula.Formula;
 import edu.umd.cs.psl.model.kernel.CompatibilityKernel;
 import edu.umd.cs.psl.model.kernel.Kernel;
+import edu.umd.cs.psl.model.parameters.NegativeWeight;
 import edu.umd.cs.psl.model.parameters.PositiveWeight;
 import edu.umd.cs.psl.model.parameters.Weight;
 
 public class CompatibilityRuleKernel extends AbstractRuleKernel implements CompatibilityKernel {
 	
-	protected PositiveWeight weight;
+	protected Weight weight;
 	protected boolean squared;
+	protected boolean mutable;
 
 	public CompatibilityRuleKernel(Formula f, double w, boolean squared) {
 		super(f);
-		weight = new PositiveWeight(w);
+		weight = (w >= 0.0) ? new PositiveWeight(w) : new NegativeWeight(w);
 		this.squared = squared;
+		mutable = true;
 	}
 
 	@Override
@@ -48,10 +51,10 @@ public class CompatibilityRuleKernel extends AbstractRuleKernel implements Compa
 	
 	@Override
 	public void setWeight(Weight w) {
-		if (!(w instanceof PositiveWeight)) 
-			throw new IllegalArgumentException("Expected PositiveWeight weight.");
+		if (!mutable)
+			throw new IllegalStateException("Kernel weight is not mutable.");
 		
-		weight = (PositiveWeight) w;
+		weight = w;
 	}
 	
 	@Override
@@ -63,5 +66,15 @@ public class CompatibilityRuleKernel extends AbstractRuleKernel implements Compa
 	@Override
 	public Kernel clone() {
 		return new CompatibilityRuleKernel(formula, weight.getWeight(), squared);
+	}
+
+	@Override
+	public boolean isWeightMutable() {
+		return mutable;
+	}
+
+	@Override
+	public void setWeightMutable(boolean mutable) {
+		this.mutable = mutable;
 	}
 }
