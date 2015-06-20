@@ -38,9 +38,20 @@ public abstract class AbstractKernel implements Kernel {
 	private static final Logger log = LoggerFactory.getLogger(AbstractKernel.class);
 	
 	protected SetMultimap<AtomEventFramework, GroundKernelStore> frameworks;
-	
+
+	protected String name;
+	protected static final String DEFAULT_NAME = AbstractKernel.class.getName();
+
 	protected AbstractKernel() {
+		this(DEFAULT_NAME);
+	}
+
+	/**
+	 * @param name a meaningful name for the kernel
+	 */
+	protected AbstractKernel(String name) {
 		this.frameworks = HashMultimap.create();
+		this.name = name;
 	}
 	
 	@Override
@@ -86,7 +97,17 @@ public abstract class AbstractKernel implements Kernel {
 	public void setParameters(Parameters para) {
 		throw new UnsupportedOperationException(this.getClass().getName() + " does not have parameters.");
 	}
-	
+
+	@Override
+	public String getName() {
+		return name;
+	}
+
+	@Override
+	public void setName(String name) {
+		this.name = name;
+	}
+
 	/**
 	 * Handles an AtomEvent using the specified GroundKernelStore.
 	 * <p>

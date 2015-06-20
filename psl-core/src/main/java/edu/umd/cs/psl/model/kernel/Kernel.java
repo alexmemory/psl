@@ -108,7 +108,17 @@ public interface Kernel extends AtomEvent.Listener, Cloneable {
 	 * @param para  the new parameterization
 	 */
 	public void setParameters(Parameters para);
+		
+	/**
+	 * @return a meaningful name for the kernel
+	 */
+	public String getName();
 	
+	/**
+	 * @param name a meaningful name for the kernel
+	 */
+	public void setName(String name);
+
 	public Kernel clone() throws CloneNotSupportedException;
 	
 }

@@ -22,6 +22,7 @@ import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.sql.Statement;
 import java.util.ArrayList;
+import java.util.Collection;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
@@ -485,7 +486,22 @@ public class RDBMSDataStore implements DataStore {
 		return new Partition(maxPartition + 1);
 	}
 
-
+	/**
+	 * @return the databases that are currently open
+	 */
+	public Set<RDBMSDatabase> listOpenDatabases() {
+		return new HashSet<RDBMSDatabase>(openDatabases.values());
+	}
+	
+	/**
+	 * @return the partitions associated with this data store
+	 */
+	public Set<Partition> listPartitions() {
+		Set<Partition> partitions = new HashSet<Partition>(openDatabases.keys());
+		partitions.addAll(writePartitionIDs);
+		return partitions;
+	}
+	
 	@Override
 	public void close() {
 		if (!openDatabases.isEmpty())

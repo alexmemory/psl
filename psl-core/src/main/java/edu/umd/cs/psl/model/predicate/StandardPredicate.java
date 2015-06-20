@@ -16,6 +16,8 @@
  */
 package edu.umd.cs.psl.model.predicate;
 
+import java.util.List;
+
 import edu.umd.cs.psl.database.Database;
 import edu.umd.cs.psl.model.argument.ArgumentType;
 import edu.umd.cs.psl.model.atom.GroundAtom;
@@ -31,10 +33,11 @@ public class StandardPredicate extends Predicate {
 	 * 
 	 * @param name  name for this predicate
 	 * @param types  types for each of the predicate's arguments
+	 * @param names  names for each of the predicate's arguments
 	 * @see PredicateFactory
 	 */
-	StandardPredicate(String name, ArgumentType[] types) {
-		super(name, types);
+	StandardPredicate(String name, ArgumentType[] types, List<String> names) {
+		super(name, types, names);
 	}
 	
 }

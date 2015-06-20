@@ -53,6 +53,7 @@ class PSLModel extends Model {
 	// Keys for Groovy syntactic sugar
 	private static final String predicateKey = 'predicate';
 	private static final String predicateArgsKey = 'types';
+	private static final String predicateArgNamesKey = 'names';
 	private static final String functionKey = 'function';
 	private static final String ruleKey = 'rule';
 	private static final String setComparisonKey = 'setcomparison';
@@ -229,7 +230,12 @@ class PSLModel extends Model {
 				throw new IllegalArgumentException("Must provide at least one ArgumentType. " +
 					"Include multiple arguments as a list wrapped in [...].");
 				
-			StandardPredicate pred = pf.createStandardPredicate(name, predArgs);
+			StandardPredicate pred;
+			if (args.containsKey(predicateArgNamesKey)) {
+				pred = pf.createStandardPredicate(name, args[predicateArgNamesKey], predArgs);
+			} else {
+				pred = pf.createStandardPredicate(name, predArgs);
+			}
 			ds.registerPredicate(pred);
 		}
 		else
@@ -311,7 +317,11 @@ class PSLModel extends Model {
 		} else {
 			pslrule = new CompatibilityRuleKernel(ruleformula, weight, isSquared);
 		}
-		
+
+		if (args.containsKey('name')) {
+			pslrule.setName(args['name']);
+		}
+
 		addKernel(pslrule);
 		return pslrule;
 	}
@@ -330,6 +340,9 @@ class PSLModel extends Model {
 		}
 		else {
 			con = new DomainRangeConstraintKernel(predicate, type.getPSLConstraint());
+		}
+		if (args.containsKey('name')) {
+			con.setName(args['name']);
 		}
 		addKernel(con);
 		return con;

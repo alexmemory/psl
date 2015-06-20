@@ -69,9 +69,6 @@ abstract public class AbstractRuleKernel extends AbstractKernel {
 					"least once as an argument for a negative literal with a " +
 					"StandardPredicate.");
 		
-		if (clause.isGround())
-			throw new IllegalArgumentException("Formula has no Variables.");
-		
 		if (!clause.isQueriable())
 			throw new IllegalArgumentException("Formula is not a valid rule for unknown reason.");
 	}

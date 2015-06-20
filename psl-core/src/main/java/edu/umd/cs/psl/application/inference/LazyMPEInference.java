@@ -112,8 +112,28 @@ public class LazyMPEInference extends Observable implements ModelApplication {
 	 */
 	public FullInferenceResult mpeInference() 
 			throws ClassNotFoundException, IllegalAccessException, InstantiationException {
-
 		Reasoner reasoner = ((ReasonerFactory) config.getFactory(REASONER_KEY, REASONER_DEFAULT)).getReasoner(config);
+		FullInferenceResult result = mpeInference(reasoner);
+		reasoner.close();
+		return result;
+	}
+
+	/**
+	 * Minimizes the total weighted incompatibility of the {@link GroundAtom GroundAtoms}
+	 * in the Database according to the Model and commits the updated truth
+	 * values back to the Database.
+	 * <p>
+	 * The {@link RandomVariableAtom RandomVariableAtoms} to be inferred are those
+	 * persisted in the Database when this method is called. All RandomVariableAtoms
+	 * which the Model might access must be persisted in the Database.
+	 * 
+	 * @param reasoner the reasoner to use
+	 * @return inference results
+	 * @see DatabasePopulator
+	 */
+	public FullInferenceResult mpeInference(Reasoner reasoner) 
+			throws ClassNotFoundException, IllegalAccessException, InstantiationException {
+
 		AtomEventFramework eventFramework = new AtomEventFramework(db, config);
 		
 		/* Registers the Model's Kernels with the AtomEventFramework */
@@ -160,7 +180,6 @@ public class LazyMPEInference extends Observable implements ModelApplication {
 			k.unregisterForAtomEvents(eventFramework, reasoner);
 		
 		int size = reasoner.size();
-		reasoner.close();
 		
 		return new MemoryFullInferenceResult(incompatibility, infeasibility, count, size);
 	}

@@ -17,6 +17,7 @@
 package edu.umd.cs.psl.model.predicate;
 
 import java.util.HashMap;
+import java.util.List;
 import java.util.Map;
 import java.util.regex.Pattern;
 
@@ -77,6 +78,26 @@ public class PredicateFactory {
 	 *                                       or an element of types is NULL
 	 */
 	public StandardPredicate createStandardPredicate(String name, ArgumentType... types) {
+		return createStandardPredicate(name, null, types);
+	}
+	
+	/**
+	 * Constructs a StandardPredicate.
+	 * <p>
+	 * Returns an existing StandardPredicate if one has the same name and
+	 * ArgumentTypes.
+	 *
+	 * @param name  name for the new predicate
+	 * @param names  names for each of the predicate's arguments
+	 * @param types  types for each of the predicate's arguments
+	 * @return the newly constructed Predicate
+	 * @throws IllegalArgumentException  if name is already used with different
+	 *                                       ArgumentTypes, is already used by
+	 *                                       another type of Predicate, doesn't
+	 *                                       match \w+; types has length zero;
+	 *                                       or an element of types is NULL
+	 */
+	public StandardPredicate createStandardPredicate(String name, List<String> names, ArgumentType... types) {
 		name = name.toUpperCase();
 		Predicate p = predicateByName.get(name);
 		if (p != null) {
@@ -97,7 +118,8 @@ public class PredicateFactory {
 		}
 		else {
 			checkPredicateSignature(name, types);
-			StandardPredicate sp = new StandardPredicate(name, types);
+			assert (names == null) || (types.length == names.size());
+			StandardPredicate sp = new StandardPredicate(name, types, names);
 			addPredicate(sp,name);
 			return sp;
 		}
