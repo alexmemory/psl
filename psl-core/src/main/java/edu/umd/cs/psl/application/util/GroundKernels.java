@@ -19,6 +19,9 @@ package edu.umd.cs.psl.application.util;
 import java.util.ArrayList;
 import java.util.List;
 
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+
 import edu.umd.cs.psl.model.atom.GroundAtom;
 import edu.umd.cs.psl.model.atom.RandomVariableAtom;
 import edu.umd.cs.psl.model.kernel.GroundCompatibilityKernel;
@@ -29,6 +32,7 @@ import edu.umd.cs.psl.model.kernel.GroundKernel;
  * Static utilities for common {@link GroundKernel} tasks.
  */
 public class GroundKernels {
+        private static final Logger log = LoggerFactory.getLogger(GroundKernels.class);
 
 	/**
 	 * Sums the total weighted incompatibility of an iterable container of
@@ -175,6 +179,8 @@ public class GroundKernels {
 			truthValues[i] = atoms.get(i).getValue();
 		
 		/* Sums over settings */
+                log.trace("Expected weighted compatibility being calculated over 2^"+
+                          atoms.size()+"="+Math.pow(2, atoms.size())+" settings.");
 		for (int i = 0; i < Math.pow(2, atoms.size()); i++) {
 			double assignmentProb = 1.0;
 			
