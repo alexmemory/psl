@@ -6,6 +6,13 @@
 <version>0.1.0</version>
 <name>clj-psl</name>
 <description>A wrapper for PSL</description>
+<distributionManagement>
+  <repository>
+    <id>clojars</id>
+    <name>Clojars repository</name>
+    <url>https://clojars.org/repo</url>
+  </repository>
+</distributionManagement>
 <build>
   <sourceDirectory>src</sourceDirectory>
   <testSourceDirectory>test</testSourceDirectory>
