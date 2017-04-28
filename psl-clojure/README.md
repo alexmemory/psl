@@ -19,7 +19,7 @@ The prompt shows that you are in the namespace for the `src/myproj/core.clj` fil
 (def m (psl/model-new ds))
 ```
 
-Apply a rule for a toy problem to the model.  The rule says that all dogs are mammals.
+Apply a rule for a toy problem to the model.  The rule, which is defined in `core.clj`, says that all dogs are mammals.
 
 ```
 (VOCAB m)
