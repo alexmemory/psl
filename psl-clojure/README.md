@@ -82,10 +82,10 @@ Now `(psl/psl-pred-read m ds [res] "mammal" true)` shows the updated inference r
 | George |    0.5 |
 ```
 
-Also, for some reason we think mammals are rare.  Add a prior with weight `0.5` saying this.
+Also, for some reason we think mammals are rare.  Add a prior with weight `0.75` saying this.
 
 ```
-(psl/add-rule m (psl/NOT (mammal 'N)) 0.5 true "MAMMALS ARE RARE")
+(psl/add-rule m (psl/NOT (mammal 'N)) 0.75 true "MAMMALS ARE RARE")
 ```
 
 Update inference and check the result.
@@ -96,9 +96,9 @@ Update inference and check the result.
 ```
 
 ```
-|     :n |             :value |
-|--------+--------------------|
-|  Furry | 0.8340037948686176 |
-|   Fido | 0.8340037948686176 |
-| George | 0.5008723182655352 |
+|     :n |              :value |
+|--------+---------------------|
+|  Furry |          0.66667873 |
+|   Fido |          0.66667873 |
+| George | 0.49900774400000003 |
 ```
