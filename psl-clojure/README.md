@@ -64,12 +64,11 @@ Confirm that all dogs are mammals with `(psl/psl-pred-read m ds [res] "mammal" t
 |  Fido |    1.0 |
 ```
 
-You can also print a summary of the ground rules used in inference with `(psl/ground-kernels-print-summary gks)`.  This is an interactive session, so we can change the data and rules as we like.  Suppose we now have a third dog.  Update the dataset, clear the PSL partitions and re-run inference.
+You can also print a summary of the ground rules used in inference with `(psl/ground-kernels-print-summary gks)`.  This is an interactive session, so we can change the data and rules as we like.  Suppose we now have a third dog, George.
 
 ```
-(psl/partitions-delete ds [res obs])
-(def dogs (in/dataset [:n] [["Fido"] ["Furry"] ["George"]]))
-(psl/psl-pred-append ds obs (psl/p m "dog") dogs)
+(def more-dogs (in/dataset [:n] [["George"]]))
+(psl/psl-pred-append ds obs (psl/p m "dog") more-dogs)
 (inference cb ds m obs res ["dog"])
 ```
 
