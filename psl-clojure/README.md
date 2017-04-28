@@ -64,10 +64,10 @@ Confirm that all dogs are mammals with `(psl/psl-pred-read m ds [res] "mammal" t
 |  Fido |    1.0 |
 ```
 
-You can also print a summary of the ground rules used in inference with `(psl/ground-kernels-print-summary gks)`.  This is an interactive session, so we can change the data and rules as we like.  Suppose we now have a third dog, George.
+You can also print a summary of the ground rules used in inference with `(psl/ground-kernels-print-summary gks)`.  This is an interactive session, so we can change the data and rules as we like.  Suppose there's a third animal but we're only 50% sure it's a dog.
 
 ```
-(def more-dogs (in/dataset [:n] [["George"]]))
+(def more-dogs (in/dataset [:n :value] [["George" 0.5]]))
 (psl/psl-pred-append ds obs (psl/p m "dog") more-dogs)
 (inference cb ds m obs res ["dog"])
 ```
@@ -79,7 +79,7 @@ Now `(psl/psl-pred-read m ds [res] "mammal" true)` shows the updated inference r
 |--------+--------|
 |  Furry |    1.0 |
 |   Fido |    1.0 |
-| George |    1.0 |
+| George |    0.5 |
 ```
 
 
