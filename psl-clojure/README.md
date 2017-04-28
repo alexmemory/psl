@@ -3,7 +3,7 @@
 Install [Leiningen](https://leiningen.org).  Then, create a new example application called `myproj` using PSL.
 
 ```
-lein new psl-clj myproj
+lein new clj-psl myproj
 cd myproj
 ```
 
