@@ -82,4 +82,4 @@ Now `(psl/psl-pred-read m ds [res] "mammal" true)` shows the updated inference r
 | George |    0.5 |
 ```
 
-
+To clear the partitions of data, run `(psl/partitions-delete ds [res obs])`.
