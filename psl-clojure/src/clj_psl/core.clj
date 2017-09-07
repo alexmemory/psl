@@ -311,26 +311,26 @@
   "Read a table from the PSL DB"
   ;; With a supplied database
   ([model db pred-name include-value]
-     (let [atoms (Queries/getAllAtoms db (p model pred-name))
-           col-ns (psl-pred-col-names model pred-name)]
-       (if include-value 
-         (in/dataset (conj col-ns :value)
-                     (for [atom atoms]
-                       (flatten [(for [arg (.getArguments atom)] (.toString arg))
-                                 (.getValue atom)])))
-         (in/dataset col-ns 
-                     (for [atom atoms]
-                       (for [arg (.getArguments atom)] (.toString arg)))))))
+   (let [atoms (Queries/getAllAtoms db (p model pred-name))
+         col-ns (psl-pred-col-names model pred-name)]
+     (if include-value 
+       (in/dataset (conj col-ns :value)
+                   (for [atom atoms]
+                     (flatten [(for [arg (.getArguments atom)] (.toString arg))
+                               (.getValue atom)])))
+       (in/dataset col-ns 
+                   (for [atom atoms]
+                     (for [arg (.getArguments atom)] (.toString arg)))))))
   ;; Without a database
   ([model datastore parts-read pred-name include-value]
-     (let [
-           db (open-db
-               datastore
-               model
-               parts-read)
-           res (psl-pred-read model db pred-name include-value)]
-       (close-db db)
-       res)))
+   (let [
+         db (open-db
+             datastore
+             model
+             parts-read)
+         res (psl-pred-read model db pred-name include-value)]
+     (close-db db)
+     res)))
 
 (defn round-atoms
   "Round atoms of open predicates using conditional probabilities, per
@@ -387,6 +387,23 @@
     ;; (cu/dbg (GroundKernels/getTotalWeightedCompatibility (.getCompatibilityKernels mgks)))
     (.getGroundKernels mgks)            ; Return new list of ground kernels
     ))
+
+(defn round-atoms-simple
+  "Round atoms of open predicates, interpreting truth values as
+  rounding probabilities."
+  [database open-predicates]
+  (log/infof "round:: ::starting")
+  (doseq [rv-pred open-predicates]
+    (let [atoms (Queries/getAllAtoms database rv-pred)]
+      (log/infof "round:: ::atoms %d" (count atoms))
+      (doseq [atom atoms]           
+        (log/infof "round:: atom:: ::starting")
+        (let [val-old (.getValue atom) ; Remember old value
+              val-new (if (> (rand) val-old) 0 1)]
+          (.setValue atom val-new) 
+          (dosync
+           (.commitToDB atom)))       ; Change value in DB
+        (log/infof "round:: atom:: ::done")))))
 
 (defn to-variables "Wrap a list as a list of Variables."
   [args]     
