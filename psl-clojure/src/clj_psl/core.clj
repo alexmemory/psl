@@ -119,9 +119,15 @@
             (compare n1 n2)))
         (seq ground-kernels)))
 
+(defn ground-kernels-names
+  "Return a list of distinct kernel names associated with the given
+  collection of ground kernels."
+  [ground-kernels]
+  (sort (distinct (for [gk ground-kernels] (.getName (.getKernel gk))))))
+
 (defn ground-kernels-print-summary         
   "Print a summary of ground kernels."
-  ;; With kernel name
+  ;; Without kernel name
   ([ground-kernels]
    (doseq [gk (ground-kernels-by-name-sort ground-kernels)]
      (println (str 
@@ -140,6 +146,20 @@
   ([ground-kernels kernel-name]
    (ground-kernels-print-summary
     (ground-kernels-by-name ground-kernels kernel-name))))
+
+(defn ground-kernels-sample
+  "Return a sample of the ground kernels up to a maximum size n."
+  [ground-kernels n]
+  (cu/random-sample-n (seq ground-kernels) n))
+
+(defn ground-kernels-stratified-sample
+  "Return a sample of ground kernels, with up to n of each kernel."
+  [ground-kernels n]
+  (for [kernel-name (ground-kernels-names ground-kernels)
+        ground-kernel (ground-kernels-sample
+                       (ground-kernels-by-name ground-kernels kernel-name)
+                       n)]
+    ground-kernel))
 
 (defn model-new
   "Return a new PSLModel associated with the given DataStore."
