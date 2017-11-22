@@ -17,6 +17,7 @@
 package edu.umd.cs.psl.model.kernel.rule;
 
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Set;
@@ -107,6 +108,14 @@ abstract public class AbstractGroundRule implements GroundKernel {
 			atoms.add(atom);
 		
 		return atoms;
+	}
+	
+	public List<GroundAtom> getNegativeAtoms() {
+		return Collections.unmodifiableList(negLiterals);
+	}
+	
+	public List<GroundAtom> getPositiveAtoms() {
+		return Collections.unmodifiableList(posLiterals);
 	}
 	
 	public double getTruthValue() {
