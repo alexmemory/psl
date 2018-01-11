@@ -14,7 +14,7 @@
    [edu.umd.cs.psl.model.atom QueryAtom]
    [edu.umd.cs.psl.model.argument ArgumentType GroundTerm Term Variable]
    [edu.umd.cs.psl.model.formula Conjunction Disjunction Negation Rule Formula]
-   [edu.umd.cs.psl.model.kernel GroundConstraintKernel]
+   [edu.umd.cs.psl.model.kernel GroundConstraintKernel ConstraintKernel]
    [edu.umd.cs.psl.model.kernel.rule ConstraintRuleKernel CompatibilityRuleKernel]
    [edu.umd.cs.psl.reasoner Reasoner ReasonerFactory]
    [edu.umd.cs.psl.util.database Queries]
@@ -160,6 +160,14 @@
                        (ground-kernels-by-name ground-kernels kernel-name)
                        n)]
     ground-kernel))
+
+(defn kernels-info
+  "Return info about kernels."
+  [model]
+  (for [k (.getKernels model)]
+    (if (instance? ConstraintKernel k)
+      {:kind "constraint" :name (.getName k)}
+      {:kind "compatibility" :name (.getName k) :weight (.getWeight (.getWeight k))})))
 
 (defn model-new
   "Return a new PSLModel associated with the given DataStore."
