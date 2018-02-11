@@ -22,6 +22,7 @@ import org.linqs.psl.model.atom.RandomVariableAtom;
 import org.linqs.psl.model.rule.GroundRule;
 import org.linqs.psl.model.rule.UnweightedGroundRule;
 import org.linqs.psl.model.rule.WeightedGroundRule;
+import org.linqs.psl.model.rule.logical.WeightedGroundLogicalRule;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -191,6 +192,49 @@ public class GroundRules {
 
 		/* Weights and returns */
 		return inc * groundRule.getWeight();
+	}
+
+	/**
+	 * Computes the expected weighted compatibility (1 - incompatibility)
+	 * of a WeightedGroundLogicalRule.
+	 * from independently rounding each {@link RandomVariableAtom} to 1.0 or 0.0
+	 * with probability equal to its current truth value.
+	 *
+	 * WARNING: the result of this function is incorrect if the RandomVariableAtoms
+	 * are subject to any {@link UnweightedGroundRule UnweightedGroundRule}.
+	 *
+	 * WARNING: This method does not account for WeightedGroundLogicalRules that
+	 * were not grounded because they are trivially satisfied.
+	 */
+	public static double getExpectedWeightedLogicalCompatibility(WeightedGroundLogicalRule groundRule) {
+
+		/* Collects RandomVariableAtoms */
+		List<RandomVariableAtom> positiveAtoms = new ArrayList<RandomVariableAtom>();
+		List<RandomVariableAtom> negativeAtoms = new ArrayList<RandomVariableAtom>();
+		for (GroundAtom atom : groundRule.getPositiveAtoms())
+			if (atom instanceof RandomVariableAtom)
+				positiveAtoms.add((RandomVariableAtom) atom);
+		for (GroundAtom atom : groundRule.getNegativeAtoms())
+			if (atom instanceof RandomVariableAtom)
+				negativeAtoms.add((RandomVariableAtom) atom);
+
+		/* Collects truth values */
+		double[] positiveAtomTruthValues = new double[positiveAtoms.size()];
+		double[] negativeAtomTruthValues = new double[negativeAtoms.size()];
+		for (int i = 0; i < positiveAtomTruthValues.length; i++)
+			positiveAtomTruthValues[i] = positiveAtoms.get(i).getValue();
+		for (int i = 0; i < negativeAtomTruthValues.length; i++)
+			negativeAtomTruthValues[i] = negativeAtoms.get(i).getValue();
+
+		/* Product of rounding probabilities */
+		double inc = 1.0;
+		for (double positiveAtomTruthValue: positiveAtomTruthValues)
+			inc *= 1 - positiveAtomTruthValue;
+		for (double negativeAtomTruthValue: negativeAtomTruthValues)
+			inc *= negativeAtomTruthValue;
+
+		/* Weights and returns */
+		return groundRule.getWeight() * (1 - inc);
 	}
 
 	/**
