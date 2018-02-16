@@ -20,11 +20,8 @@ package org.linqs.psl.model.rule;
 import org.linqs.psl.model.atom.GroundAtom;
 import org.linqs.psl.reasoner.function.ConstraintTerm;
 
-public interface UnweightedGroundRule extends GroundRule {
+public interface UnweightedGroundRule {
 	
-	@Override
-	public UnweightedRule getRule();
-
 	public ConstraintTerm getConstraintDefinition();
 	
 	/**

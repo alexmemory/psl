@@ -18,6 +18,7 @@
 package org.linqs.psl.model.rule.logical;
 
 import org.linqs.psl.model.atom.GroundAtom;
+import org.linqs.psl.model.rule.Rule;
 import org.linqs.psl.model.rule.WeightedGroundRule;
 import org.linqs.psl.model.rule.WeightedRule;
 import org.linqs.psl.reasoner.function.ConstantNumber;
@@ -39,8 +40,8 @@ public class WeightedGroundLogicalRule extends AbstractGroundLogicalRule impleme
 	}
 
 	@Override
-	public WeightedRule getRule() {
-		return (WeightedRule)rule;
+	public Rule getRule() {
+		return rule;
 	}
 
 	@Override
@@ -51,7 +52,7 @@ public class WeightedGroundLogicalRule extends AbstractGroundLogicalRule impleme
 	@Override
 	public double getWeight() {
 		if (Double.isNaN(weight)) {
-			return getRule().getWeight();
+			return ((WeightedRule)getRule()).getWeight();
 		}
 		return weight;
 	}

@@ -19,6 +19,7 @@ package org.linqs.psl.model.rule.arithmetic;
 
 import org.linqs.psl.model.atom.GroundAtom;
 import org.linqs.psl.model.predicate.SpecialPredicate;
+import org.linqs.psl.model.rule.Rule;
 import org.linqs.psl.model.rule.WeightedGroundRule;
 import org.linqs.psl.model.rule.WeightedRule;
 import org.linqs.psl.reasoner.function.ConstantNumber;
@@ -66,8 +67,8 @@ public class WeightedGroundArithmeticRule extends AbstractGroundArithmeticRule i
 	}
 
 	@Override
-	public WeightedRule getRule() {
-		return (WeightedRule)rule;
+	public Rule getRule() {
+		return rule;
 	}
 
 	@Override
@@ -78,7 +79,7 @@ public class WeightedGroundArithmeticRule extends AbstractGroundArithmeticRule i
 	@Override
 	public double getWeight() {
 		if (Double.isNaN(weight)) {
-			return getRule().getWeight();
+			return ((WeightedRule)getRule()).getWeight();
 		}
 		return weight;
 	}

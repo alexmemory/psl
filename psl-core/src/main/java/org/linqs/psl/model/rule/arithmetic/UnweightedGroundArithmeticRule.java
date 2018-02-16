@@ -19,6 +19,7 @@ package org.linqs.psl.model.rule.arithmetic;
 
 import org.linqs.psl.model.atom.GroundAtom;
 import org.linqs.psl.model.predicate.SpecialPredicate;
+import org.linqs.psl.model.rule.Rule;
 import org.linqs.psl.model.rule.UnweightedGroundRule;
 import org.linqs.psl.model.rule.UnweightedRule;
 import org.linqs.psl.reasoner.function.ConstraintTerm;
@@ -48,8 +49,8 @@ public class UnweightedGroundArithmeticRule extends AbstractGroundArithmeticRule
 	}
 
 	@Override
-	public UnweightedRule getRule() {
-		return (UnweightedRule) rule;
+	public Rule getRule() {
+		return rule;
 	}
 
 	@Override

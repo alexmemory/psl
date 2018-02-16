@@ -20,6 +20,7 @@ package org.linqs.psl.model.rule.logical;
 import java.util.List;
 
 import org.linqs.psl.model.atom.GroundAtom;
+import org.linqs.psl.model.rule.Rule;
 import org.linqs.psl.model.rule.UnweightedGroundRule;
 import org.linqs.psl.model.rule.UnweightedRule;
 import org.linqs.psl.reasoner.function.ConstraintTerm;
@@ -33,8 +34,8 @@ public class UnweightedGroundLogicalRule extends AbstractGroundLogicalRule
 	}
 
 	@Override
-	public UnweightedRule getRule() {
-		return (UnweightedRule) rule;
+	public Rule getRule() {
+		return rule;
 	}
 	
 	@Override
