@@ -264,46 +264,34 @@ public class GroundRules {
 	 */
 	public static double getExpectedWeightedLogicalSatisfaction(WeightedGroundLogicalRule groundRule) {
 
-		// Collects GroundAtoms. Atoms in GroundRule are already negated
-		List<GroundAtom> posAtoms = new ArrayList<GroundAtom>();
-		List<GroundAtom> negAtoms = new ArrayList<GroundAtom>();
-		for (GroundAtom atom : groundRule.getPositiveAtoms())
-			if (!(atom instanceof RandomVariableAtom) &&
-				(atom.getValue() > 0) &&
-				(atom.getValue() < 1))
-				throw new IllegalArgumentException("Soft observed values are not supported");
-			else
-				negAtoms.add((GroundAtom) atom);
-		for (GroundAtom atom : groundRule.getNegativeAtoms())
-			if (!(atom instanceof RandomVariableAtom) &&
-				(atom.getValue() > 0) &&
-				(atom.getValue() < 1))
-				throw new IllegalArgumentException("Soft observed values are not supported");
-			else
-				posAtoms.add((GroundAtom) atom);
-
-		// Collects truth values
-		double[] positiveValues = new double[posAtoms.size()];
-		double[] negativeValues = new double[negAtoms.size()];
-		for (int i = 0; i < positiveValues.length; i++) {
-			if (posAtoms.get(i) instanceof RandomVariableAtom)
-				positiveValues[i] = roundingProbability(posAtoms.get(i).getValue());
-			else
-				positiveValues[i] = posAtoms.get(i).getValue();
-		}
-		for (int i = 0; i < negativeValues.length; i++) {
-			if (negAtoms.get(i) instanceof RandomVariableAtom)
-				negativeValues[i] = roundingProbability(negAtoms.get(i).getValue());
-			else
-				negativeValues[i] = negAtoms.get(i).getValue();
-		}
-
-		// Product of rounding probabilities
+		// P(ground rule is unsatisfied)
 		double unsat = 1.0;
-		for (double positiveValue: positiveValues)
-			unsat *= 1 - positiveValue;
-		for (double negativeValue: negativeValues)
-			unsat *= negativeValue;
+		for (GroundAtom atom : groundRule.getPositiveAtoms()) {
+			if (!(atom instanceof RandomVariableAtom) &&
+				(atom.getValue() > 0) &&
+				(atom.getValue() < 1))
+				throw new IllegalArgumentException("Soft observed values are not supported");
+			else {
+				// Atoms in GroundRule are already negated, so this is negative
+				if (atom instanceof RandomVariableAtom)
+					unsat *= roundingProbability(atom.getValue());
+				else
+					unsat *= atom.getValue();
+			}
+		}
+		for (GroundAtom atom : groundRule.getNegativeAtoms()) {
+			if (!(atom instanceof RandomVariableAtom) &&
+				(atom.getValue() > 0) &&
+				(atom.getValue() < 1))
+				throw new IllegalArgumentException("Soft observed values are not supported");
+			else {
+				// Atoms in GroundRule are already negated, so this is positive
+				if (atom instanceof RandomVariableAtom)
+					unsat *= 1 - roundingProbability(atom.getValue());
+				else
+					unsat *= 1 - atom.getValue();
+			}
+		}
 
 		// Weights and returns
 		return groundRule.getWeight() * (1 - unsat);
