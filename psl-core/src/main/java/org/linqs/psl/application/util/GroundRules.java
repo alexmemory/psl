@@ -262,7 +262,7 @@ public class GroundRules {
 	 * WARNING: This method does not account for WeightedGroundLogicalRules that
 	 * were not grounded because they are trivially satisfied.
 	 */
-	public static double getExpectedWeightedLogicalSatisfaction(WeightedGroundLogicalRule groundRule) throws Exception {
+	public static double getExpectedWeightedLogicalSatisfaction(WeightedGroundLogicalRule groundRule) {
 
 		// Collects GroundAtoms. Atoms in GroundRule are already negated
 		List<GroundAtom> posAtoms = new ArrayList<GroundAtom>();
@@ -271,14 +271,14 @@ public class GroundRules {
 			if (!(atom instanceof RandomVariableAtom) &&
 				(atom.getValue() > 0) &&
 				(atom.getValue() < 1))
-				throw new Exception("Soft observed values are not supported");
+				throw new IllegalArgumentException("Soft observed values are not supported");
 			else
 				negAtoms.add((GroundAtom) atom);
 		for (GroundAtom atom : groundRule.getNegativeAtoms())
 			if (!(atom instanceof RandomVariableAtom) &&
 				(atom.getValue() > 0) &&
 				(atom.getValue() < 1))
-				throw new Exception("Soft observed values are not supported");
+				throw new IllegalArgumentException("Soft observed values are not supported");
 			else
 				posAtoms.add((GroundAtom) atom);
 
