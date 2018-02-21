@@ -212,36 +212,28 @@ public class GroundRules {
 	 * were not grounded because they are trivially satisfied.
 	 */
 	public static double getExpectedWeightedLogicalCompatibility(WeightedGroundLogicalRule groundRule) {
-		// Collects GroundAtom values. Atoms in GroundRule are already negated
-		List<Double> posRvValues = new ArrayList<Double>();
-		List<Double> posObsValues = new ArrayList<Double>();
-		List<Double> negRvValues = new ArrayList<Double>();
-		List<Double> negObsValues = new ArrayList<Double>();
-		for (GroundAtom atom : groundRule.getPositiveAtoms())
-			if (atom instanceof RandomVariableAtom)
-				negRvValues.add(atom.getValue());
-			else
-				negObsValues.add(atom.getValue());
-		for (GroundAtom atom : groundRule.getNegativeAtoms())
-			if (atom instanceof RandomVariableAtom)
-				posRvValues.add(atom.getValue());
-			else
-				posObsValues.add(atom.getValue());
-
-		// Sum of observed atoms
 		double observedSum = 0;
-		for (double posObsValue : posObsValues)
-			observedSum += posObsValue;
-		for (double negObsValue : negObsValues)
-			observedSum += (1 - negObsValue);
-		observedSum = Math.min(1, observedSum);
-
-		// P(sum of RV >= 1)
 		double rvSumLessThanOne = 1.0;
-		for (double posRvValue: posRvValues)
-			rvSumLessThanOne *= 1 - roundingProbability(posRvValue);
-		for (double negRvValue: negRvValues)
-			rvSumLessThanOne *= roundingProbability(negRvValue);
+
+		// Atoms in GroundRule are already negated
+		for (GroundAtom atom : groundRule.getNegativeAtoms()) {
+			if (atom instanceof RandomVariableAtom) {
+				double posRvValue = atom.getValue();
+				rvSumLessThanOne *= 1 - roundingProbability(posRvValue);
+			} else {
+				double posObsValue = atom.getValue();
+				observedSum += posObsValue;
+			}
+		}
+		for (GroundAtom atom : groundRule.getPositiveAtoms()) {
+			if (atom instanceof RandomVariableAtom) {
+				double negRvValue = atom.getValue();
+				rvSumLessThanOne *= roundingProbability(negRvValue);
+			} else {
+				double negObsValue = atom.getValue();
+				observedSum += 1 - negObsValue;
+			}
+		}
 		double rvSumAtleastOne = 1.0 - rvSumLessThanOne;
 
 		// 2 cases: If rvSumAtleastOne, then compatibility = 1, else = observedSum.
