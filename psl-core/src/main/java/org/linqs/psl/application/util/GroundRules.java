@@ -194,6 +194,11 @@ public class GroundRules {
 		return inc * groundRule.getWeight();
 	}
 
+	/** Compute the rounding probability function for a given truth value */
+	public static double roundingProbability(Double truthValue) {
+		return 0.25 + 0.5 * truthValue;
+	}
+
 	/**
 	 * Computes the expected weighted compatibility (1 - incompatibility)
 	 * of a WeightedGroundLogicalRule.
@@ -207,34 +212,103 @@ public class GroundRules {
 	 * were not grounded because they are trivially satisfied.
 	 */
 	public static double getExpectedWeightedLogicalCompatibility(WeightedGroundLogicalRule groundRule) {
-
-		/* Collects RandomVariableAtoms */
-		List<RandomVariableAtom> positiveAtoms = new ArrayList<RandomVariableAtom>();
-		List<RandomVariableAtom> negativeAtoms = new ArrayList<RandomVariableAtom>();
+		/* Collects GroundAtom values. Atoms in GroundRule are
+		 * already negated */
+		List<Double> posRvValues = new ArrayList<Double>();
+		List<Double> posObsValues = new ArrayList<Double>();
+		List<Double> negRvValues = new ArrayList<Double>();
+		List<Double> negObsValues = new ArrayList<Double>();
 		for (GroundAtom atom : groundRule.getPositiveAtoms())
 			if (atom instanceof RandomVariableAtom)
-				positiveAtoms.add((RandomVariableAtom) atom);
+				negRvValues.add(atom.getValue());
+			else
+				negObsValues.add(atom.getValue());
 		for (GroundAtom atom : groundRule.getNegativeAtoms())
 			if (atom instanceof RandomVariableAtom)
-				negativeAtoms.add((RandomVariableAtom) atom);
+				posRvValues.add(atom.getValue());
+			else
+				posObsValues.add(atom.getValue());
+
+		// Sum of observed atoms
+		double k = 0;
+		for (double posObsValue : posObsValues)
+			k += posObsValue;
+		for (double negObsValue : negObsValues)
+			k += (1 - negObsValue);
+		k = Math.min(1, k);
+
+		// P(sum of RV >= 1)
+		double notp = 1.0;
+		for (double posRvValue: posRvValues)
+			notp *= 1 - roundingProbability(posRvValue);
+		for (double negRvValue: negRvValues)
+			notp *= roundingProbability(negRvValue);
+		double p = 1.0 - notp;
+
+		// 2 cases: If p, then compatibility = 1, else = k.
+		double compat = p + notp * k;
+		return groundRule.getWeight() * compat;
+	}
+
+	/**
+	 * Computes the weighted probability WeightedGroundLogicalRule is satisfied.
+	 * from independently rounding each {@link RandomVariableAtom} to 1.0 or 0.0
+	 * with probability equal to its current truth value.
+	 *
+	 * WARNING: this function will throw an exception if any GroundAtoms are soft-valued.
+	 *
+	 * WARNING: the result of this function is incorrect if the RandomVariableAtoms
+	 * are subject to any {@link UnweightedGroundRule UnweightedGroundRule}.
+	 *
+	 * WARNING: This method does not account for WeightedGroundLogicalRules that
+	 * were not grounded because they are trivially satisfied.
+	 */
+	public static double getExpectedWeightedLogicalSatisfaction(WeightedGroundLogicalRule groundRule) throws Exception {
+
+		/* Collects GroundAtoms. Atoms in GroundRule are
+		 * already negated */
+		List<GroundAtom> posAtoms = new ArrayList<GroundAtom>();
+		List<GroundAtom> negAtoms = new ArrayList<GroundAtom>();
+		for (GroundAtom atom : groundRule.getPositiveAtoms())
+			if (!(atom instanceof RandomVariableAtom) &&
+				(atom.getValue() > 0) &&
+				(atom.getValue() < 1))
+				throw new Exception("Soft observed values are not supported");
+			else
+				negAtoms.add((GroundAtom) atom);
+		for (GroundAtom atom : groundRule.getNegativeAtoms())
+			if (!(atom instanceof RandomVariableAtom) &&
+				(atom.getValue() > 0) &&
+				(atom.getValue() < 1))
+				throw new Exception("Soft observed values are not supported");
+			else
+				posAtoms.add((GroundAtom) atom);
 
 		/* Collects truth values */
-		double[] positiveAtomTruthValues = new double[positiveAtoms.size()];
-		double[] negativeAtomTruthValues = new double[negativeAtoms.size()];
-		for (int i = 0; i < positiveAtomTruthValues.length; i++)
-			positiveAtomTruthValues[i] = positiveAtoms.get(i).getValue();
-		for (int i = 0; i < negativeAtomTruthValues.length; i++)
-			negativeAtomTruthValues[i] = negativeAtoms.get(i).getValue();
+		double[] positiveValues = new double[posAtoms.size()];
+		double[] negativeValues = new double[negAtoms.size()];
+		for (int i = 0; i < positiveValues.length; i++) {
+			if (posAtoms.get(i) instanceof RandomVariableAtom)
+				positiveValues[i] = roundingProbability(posAtoms.get(i).getValue());
+			else
+				positiveValues[i] = posAtoms.get(i).getValue();
+		}
+		for (int i = 0; i < negativeValues.length; i++) {
+			if (negAtoms.get(i) instanceof RandomVariableAtom)
+				negativeValues[i] = roundingProbability(negAtoms.get(i).getValue());
+			else
+				negativeValues[i] = negAtoms.get(i).getValue();
+		}
 
 		/* Product of rounding probabilities */
-		double inc = 1.0;
-		for (double positiveAtomTruthValue: positiveAtomTruthValues)
-			inc *= 1 - positiveAtomTruthValue;
-		for (double negativeAtomTruthValue: negativeAtomTruthValues)
-			inc *= negativeAtomTruthValue;
+		double unsat = 1.0;
+		for (double positiveValue: positiveValues)
+			unsat *= 1 - positiveValue;
+		for (double negativeValue: negativeValues)
+			unsat *= negativeValue;
 
 		/* Weights and returns */
-		return groundRule.getWeight() * (1 - inc);
+		return groundRule.getWeight() * (1 - unsat);
 	}
 
 	/**
