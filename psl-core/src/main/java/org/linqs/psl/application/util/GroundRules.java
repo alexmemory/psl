@@ -87,21 +87,21 @@ public class GroundRules {
 		for (WeightedGroundRule groundRule : groundRules) {
 			double inc = 0.0;
 
-			/* Collects RandomVariableAtoms */
+			// Collects RandomVariableAtoms
 			for (GroundAtom atom : groundRule.getAtoms())
 				if (atom instanceof RandomVariableAtom)
 					atoms.add((RandomVariableAtom) atom);
 
-			/* Collects truth values */
+			// Collects truth values
 			double[] truthValues = new double[atoms.size()];
 			for (int i = 0; i < truthValues.length; i++)
 				truthValues[i] = atoms.get(i).getValue();
 
-			/* Sums over settings */
+			// Sums over settings
 			for (int i = 0; i < Math.pow(2, atoms.size()); i++) {
 				double assignmentProb = 1.0;
 
-				/* Sets assignment and computes probability */
+				// Sets assignment and computes probability
 				for (int j = 0; j < atoms.size(); j++) {
 					int assignment = ((i >> j) & 1);
 					atoms.get(j).setValue(assignment);
@@ -111,14 +111,14 @@ public class GroundRules {
 				inc += assignmentProb * groundRule.getIncompatibility();
 			}
 
-			/* Restores truth values */
+			// Restores truth values
 			for (int i = 0; i < atoms.size(); i++)
 				atoms.get(i).setValue(truthValues[i]);
 
-			/* Clears atom list */
+			// Clears atom list
 			atoms.clear();
 
-			/* Weights and adds to total */
+			// Weights and adds to total
 			inc *= groundRule.getWeight();
 			totalInc += inc;
 		}
@@ -162,21 +162,21 @@ public class GroundRules {
 		double inc = 0.0;
 		List<RandomVariableAtom> atoms = new ArrayList<RandomVariableAtom>();
 
-		/* Collects RandomVariableAtoms */
+		// Collects RandomVariableAtoms
 		for (GroundAtom atom : groundRule.getAtoms())
 			if (atom instanceof RandomVariableAtom)
 				atoms.add((RandomVariableAtom) atom);
 
-		/* Collects truth values */
+		// Collects truth values
 		double[] truthValues = new double[atoms.size()];
 		for (int i = 0; i < truthValues.length; i++)
 			truthValues[i] = atoms.get(i).getValue();
 
-		/* Sums over settings */
+		// Sums over settings
 		for (int i = 0; i < Math.pow(2, atoms.size()); i++) {
 			double assignmentProb = 1.0;
 
-			/* Sets assignment and computes probability */
+			// Sets assignment and computes probability
 			for (int j = 0; j < atoms.size(); j++) {
 				int assignment = ((i >> j) & 1);
 				atoms.get(j).setValue(assignment);
@@ -186,11 +186,11 @@ public class GroundRules {
 			inc += assignmentProb * (1 - groundRule.getIncompatibility());
 		}
 
-		/* Restores truth values */
+		// Restores truth values
 		for (int i = 0; i < atoms.size(); i++)
 			atoms.get(i).setValue(truthValues[i]);
 
-		/* Weights and returns */
+		// Weights and returns
 		return inc * groundRule.getWeight();
 	}
 
@@ -212,8 +212,7 @@ public class GroundRules {
 	 * were not grounded because they are trivially satisfied.
 	 */
 	public static double getExpectedWeightedLogicalCompatibility(WeightedGroundLogicalRule groundRule) {
-		/* Collects GroundAtom values. Atoms in GroundRule are
-		 * already negated */
+		// Collects GroundAtom values. Atoms in GroundRule are already negated
 		List<Double> posRvValues = new ArrayList<Double>();
 		List<Double> posObsValues = new ArrayList<Double>();
 		List<Double> negRvValues = new ArrayList<Double>();
@@ -265,8 +264,7 @@ public class GroundRules {
 	 */
 	public static double getExpectedWeightedLogicalSatisfaction(WeightedGroundLogicalRule groundRule) throws Exception {
 
-		/* Collects GroundAtoms. Atoms in GroundRule are
-		 * already negated */
+		// Collects GroundAtoms. Atoms in GroundRule are already negated
 		List<GroundAtom> posAtoms = new ArrayList<GroundAtom>();
 		List<GroundAtom> negAtoms = new ArrayList<GroundAtom>();
 		for (GroundAtom atom : groundRule.getPositiveAtoms())
@@ -284,7 +282,7 @@ public class GroundRules {
 			else
 				posAtoms.add((GroundAtom) atom);
 
-		/* Collects truth values */
+		// Collects truth values
 		double[] positiveValues = new double[posAtoms.size()];
 		double[] negativeValues = new double[negAtoms.size()];
 		for (int i = 0; i < positiveValues.length; i++) {
@@ -300,14 +298,14 @@ public class GroundRules {
 				negativeValues[i] = negAtoms.get(i).getValue();
 		}
 
-		/* Product of rounding probabilities */
+		// Product of rounding probabilities
 		double unsat = 1.0;
 		for (double positiveValue: positiveValues)
 			unsat *= 1 - positiveValue;
 		for (double negativeValue: negativeValues)
 			unsat *= negativeValue;
 
-		/* Weights and returns */
+		// Weights and returns
 		return groundRule.getWeight() * (1 - unsat);
 	}
 
