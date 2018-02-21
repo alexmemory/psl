@@ -229,23 +229,23 @@ public class GroundRules {
 				posObsValues.add(atom.getValue());
 
 		// Sum of observed atoms
-		double k = 0;
+		double observedSum = 0;
 		for (double posObsValue : posObsValues)
-			k += posObsValue;
+			observedSum += posObsValue;
 		for (double negObsValue : negObsValues)
-			k += (1 - negObsValue);
-		k = Math.min(1, k);
+			observedSum += (1 - negObsValue);
+		observedSum = Math.min(1, observedSum);
 
 		// P(sum of RV >= 1)
-		double notp = 1.0;
+		double rvSumLessThanOne = 1.0;
 		for (double posRvValue: posRvValues)
-			notp *= 1 - roundingProbability(posRvValue);
+			rvSumLessThanOne *= 1 - roundingProbability(posRvValue);
 		for (double negRvValue: negRvValues)
-			notp *= roundingProbability(negRvValue);
-		double p = 1.0 - notp;
+			rvSumLessThanOne *= roundingProbability(negRvValue);
+		double rvSumAtleastOne = 1.0 - rvSumLessThanOne;
 
-		// 2 cases: If p, then compatibility = 1, else = k.
-		double compat = p + notp * k;
+		// 2 cases: If rvSumAtleastOne, then compatibility = 1, else = observedSum.
+		double compat = rvSumAtleastOne + rvSumLessThanOne * observedSum;
 		return groundRule.getWeight() * compat;
 	}
 
