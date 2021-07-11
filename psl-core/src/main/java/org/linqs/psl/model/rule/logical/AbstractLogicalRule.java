@@ -90,7 +90,7 @@ public abstract class AbstractLogicalRule extends AbstractRule {
 		}
 
 		if (negatedDNF.isGround()) {
-			throw new IllegalArgumentException("Formula has no Variables.");
+                        log.debug("Formula has no Variables: {}", this);
 		}
 
 		if (!negatedDNF.isQueriable()) {
