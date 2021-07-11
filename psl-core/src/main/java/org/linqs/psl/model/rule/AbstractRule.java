@@ -22,7 +22,7 @@ package org.linqs.psl.model.rule;
  */
 public abstract class AbstractRule implements Rule {
 
-	protected final String name;
+	protected String name;
 
 	public AbstractRule(String name) {
 		this.name = name;
@@ -30,5 +30,9 @@ public abstract class AbstractRule implements Rule {
 
 	public String getName() {
 		return this.name;
+	}
+
+	public void setName(String name) {
+		this.name = name;
 	}
 }
