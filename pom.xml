@@ -70,6 +70,17 @@
 			<url>http://maven.linqs.org/maven/repositories/psl-thirdparty/</url>
 			<layout>default</layout>
 		</repository>
+                <repository>
+                        <releases>
+                                <enabled>true</enabled>
+                                <updatePolicy>daily</updatePolicy>
+                                <checksumPolicy>fail</checksumPolicy>
+                        </releases>
+                        <id>psl-thirdparty-ucsc</id>
+                        <name>PSL Third Party UCSC</name>
+                        <url>https://linqs-data.soe.ucsc.edu/maven/repositories/psl-thirdparty/</url>
+                        <layout>default</layout>
+                </repository>
 	</repositories>
 	<distributionManagement>
 		<repository>
