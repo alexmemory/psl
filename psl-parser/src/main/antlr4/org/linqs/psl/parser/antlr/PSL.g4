@@ -362,8 +362,8 @@ IDENTIFIER
 
 // Constants can have more general content than IDENTIFIERs since they are quoted.
 CONSTANT_VALUE
-    :   SINGLE_QUOTE (LETTER | DIGIT)+ SINGLE_QUOTE
-    |   DOUBLE_QUOTE (LETTER | DIGIT)+ DOUBLE_QUOTE
+    :   SINGLE_QUOTE (LETTER | DIGIT | HYPHEN | ' ' | '@' | PERIOD )+ SINGLE_QUOTE
+    |   DOUBLE_QUOTE (LETTER | DIGIT | HYPHEN | ' ' | '@' | PERIOD )+ DOUBLE_QUOTE
     ;
 
 NONNEGATIVE_NUMBER
@@ -372,7 +372,7 @@ NONNEGATIVE_NUMBER
 
 fragment
 LETTER
-    :   [a-zA-Z$_] // these are the "java letters" below 0xFF
+    :   [a-zA-Z$_#] // these are the "java letters" below 0xFF, plus '#'
     ;
 
 fragment
@@ -448,6 +448,11 @@ MOD
 CARROT
     :   '^'
     ;
+
+HYPHEN
+    :   '-'
+    ;
+
 
 //
 // Whitespace and comments
