@@ -17,7 +17,7 @@
  */
 package org.linqs.psl.application.learning.weight.em;
 
-import org.linqs.psl.config.ConfigBundle;
+import org.linqs.psl.config.Config;
 import org.linqs.psl.database.Database;
 import org.linqs.psl.model.Model;
 import org.linqs.psl.model.rule.GroundRule;
@@ -69,19 +69,19 @@ public class PairedDualLearner extends ExpectationMaximization {
 	private final int warmupRounds;
 	private final int admmIterations;
 
-	public PairedDualLearner(Model model, Database rvDB, Database observedDB, ConfigBundle config) {
-		this(model.getRules(), rvDB, observedDB, config);
+	public PairedDualLearner(Model model, Database rvDB, Database observedDB) {
+		this(model.getRules(), rvDB, observedDB);
 	}
 
-	public PairedDualLearner(List<Rule> rules, Database rvDB, Database observedDB, ConfigBundle config) {
-		super(rules, rvDB, observedDB, config);
+	public PairedDualLearner(List<Rule> rules, Database rvDB, Database observedDB) {
+		super(rules, rvDB, observedDB);
 
-		warmupRounds = config.getInt(WARMUP_ROUNDS_KEY, WARMUP_ROUNDS_DEFAULT);
+		warmupRounds = Config.getInt(WARMUP_ROUNDS_KEY, WARMUP_ROUNDS_DEFAULT);
 		if (warmupRounds < 0) {
 			throw new IllegalArgumentException(WARMUP_ROUNDS_KEY + " must be a nonnegative integer.");
 		}
 
-		admmIterations = config.getInt(ADMM_STEPS_KEY, ADMM_STEPS_DEFAULT);
+		admmIterations = Config.getInt(ADMM_STEPS_KEY, ADMM_STEPS_DEFAULT);
 		if (admmIterations < 1) {
 			throw new IllegalArgumentException(ADMM_STEPS_KEY + " must be a positive integer.");
 		}
@@ -97,11 +97,12 @@ public class PairedDualLearner extends ExpectationMaximization {
 		}
 
 		ADMMReasoner admmReasoner = (ADMMReasoner)reasoner;
+		float[] consensusBuffer = new float[((ADMMTermStore)termStore).getNumGlobalVariables()];
 
 		// Compute the dual incompatbility for each ground rule.
 		for (int i = 0; i < mutableRules.size(); i++) {
 			for (GroundRule groundRule : groundRuleStore.getGroundRules(mutableRules.get(i))) {
-				expectedIncompatibility[i] += admmReasoner.getDualIncompatibility(groundRule, (ADMMTermStore)termStore);
+				expectedIncompatibility[i] += admmReasoner.getDualIncompatibility(groundRule, (ADMMTermStore)termStore, consensusBuffer);
 			}
 		}
 	}
@@ -117,11 +118,12 @@ public class PairedDualLearner extends ExpectationMaximization {
 		}
 
 		ADMMReasoner admmReasoner = (ADMMReasoner)reasoner;
+		float[] consensusBuffer = new float[((ADMMTermStore)latentTermStore).getNumGlobalVariables()];
 
 		// Computes the observed incompatibilities.
 		for (int i = 0; i < mutableRules.size(); i++) {
 			for (GroundRule groundRule : latentGroundRuleStore.getGroundRules(mutableRules.get(i))) {
-				observedIncompatibility[i] += admmReasoner.getDualIncompatibility(groundRule, (ADMMTermStore)latentTermStore);
+				observedIncompatibility[i] += admmReasoner.getDualIncompatibility(groundRule, (ADMMTermStore)latentTermStore, consensusBuffer);
 			}
 		}
 	}
@@ -219,6 +221,10 @@ public class PairedDualLearner extends ExpectationMaximization {
 			}
 			mutableRules.get(i).setWeight(weights[i]);
 		}
+
+		// The weights have changed, so we are no longer in an MPE state.
+		inMPEState = false;
+		inLatentMPEState = false;
 	}
 
 	private double getValueAndGradient(double[] gradient, double[] weights) {
@@ -227,6 +233,10 @@ public class PairedDualLearner extends ExpectationMaximization {
 				mutableRules.get(i).setWeight(weights[i]);
 			}
 		}
+
+		// The weights have changed, so we are no longer in an MPE state.
+		inMPEState = false;
+		inLatentMPEState = false;
 
 		ADMMReasoner admmReasoner = (ADMMReasoner)reasoner;
 

@@ -58,9 +58,27 @@ variable
     :   IDENTIFIER
     ;
 
+// Currently, all constants are strings and will get converted downstream.
 constant
-    :   CONSTANT_VALUE
-    ;
+   :  STRING_LITERAL
+   ;
+
+// All string literals must be quoted, but can have whatever inside the quotes.
+// Uses C-style quote escape.
+STRING_LITERAL
+   :  SINGLE_QUOTE (STANDARD_STRING_ESCAPE | ~['\\])* SINGLE_QUOTE
+   |  DOUBLE_QUOTE (STANDARD_STRING_ESCAPE | ~["\\])* DOUBLE_QUOTE
+   ;
+
+fragment
+STANDARD_STRING_ESCAPE
+   :  '\\\\'
+   |  '\\\''
+   |  '\\"'
+   |  '\\t'
+   |  '\\n'
+   |  '\\r'
+   ;
 
 //
 // Logical rules
@@ -79,18 +97,19 @@ unweightedLogicalRule
     :   logicalRuleExpression PERIOD
     ;
 
-logicalValue
+logicalNegationValue
     :   atom
-    |   not atom
+    |   not logicalNegationValue
+    |   LPAREN logicalNegationValue RPAREN
     ;
 
 logicalConjunctiveValue
-    :   logicalValue
+    :   logicalNegationValue
     |   LPAREN logicalConjunctiveExpression RPAREN
     ;
 
 logicalDisjunctiveValue
-    :   logicalValue
+    :   logicalNegationValue
     |   LPAREN logicalDisjunctiveExpression RPAREN
     ;
 
@@ -204,7 +223,7 @@ filterClause
     ;
 
 booleanValue
-    :   logicalValue
+    :   logicalNegationValue
     |   LPAREN booleanExpression RPAREN
     ;
 
@@ -227,7 +246,7 @@ booleanExpression
 //
 
 weightExpression
-    :   NONNEGATIVE_NUMBER COLON
+    :   number COLON
     ;
 
 EXPONENT_EXPRESSION

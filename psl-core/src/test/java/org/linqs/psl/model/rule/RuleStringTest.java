@@ -26,8 +26,6 @@ import org.junit.Test;
 import org.linqs.psl.PSLTest;
 import org.linqs.psl.application.groundrulestore.GroundRuleStore;
 import org.linqs.psl.application.groundrulestore.MemoryGroundRuleStore;
-import org.linqs.psl.config.ConfigBundle;
-import org.linqs.psl.config.EmptyBundle;
 import org.linqs.psl.database.DataStore;
 import org.linqs.psl.database.Database;
 import org.linqs.psl.database.Partition;
@@ -45,7 +43,6 @@ import org.linqs.psl.model.atom.QueryAtom;
 import org.linqs.psl.model.formula.Conjunction;
 import org.linqs.psl.model.formula.Formula;
 import org.linqs.psl.model.formula.Implication;
-import org.linqs.psl.model.predicate.PredicateFactory;
 import org.linqs.psl.model.predicate.StandardPredicate;
 import org.linqs.psl.model.rule.GroundRule;
 import org.linqs.psl.model.rule.Rule;
@@ -60,6 +57,7 @@ import org.linqs.psl.model.rule.logical.UnweightedLogicalRule;
 import org.linqs.psl.model.rule.logical.WeightedLogicalRule;
 import org.linqs.psl.model.term.Constant;
 import org.linqs.psl.model.term.ConstantType;
+import org.linqs.psl.model.term.UniqueIntID;
 import org.linqs.psl.model.term.UniqueStringID;
 import org.linqs.psl.model.term.Variable;
 import org.linqs.psl.reasoner.function.FunctionComparator;
@@ -74,10 +72,10 @@ import java.util.Set;
 public class RuleStringTest {
 	private DataStore dataStore;
 	private Database database;
-	private ConfigBundle config;
 	private Partition obsPartition;
 
 	private StandardPredicate singlePredicate;
+	private StandardPredicate singleIntPredicate;
 	private StandardPredicate doublePredicate;
 	private StandardPredicate singleOpened;
 
@@ -86,16 +84,16 @@ public class RuleStringTest {
 
 	@Before
 	public void setup() {
-		config = new EmptyBundle();
-		dataStore = new RDBMSDataStore(new H2DatabaseDriver(Type.Memory, this.getClass().getName(), true), config);
+		dataStore = new RDBMSDataStore(new H2DatabaseDriver(Type.Memory, this.getClass().getName(), true));
 
 		// Predicates
-		PredicateFactory factory = PredicateFactory.getFactory();
-
-		singlePredicate = factory.createStandardPredicate("SinglePredicate", ConstantType.UniqueStringID);
+		singlePredicate = StandardPredicate.get("SinglePredicate", ConstantType.UniqueStringID);
 		dataStore.registerPredicate(singlePredicate);
 
-		doublePredicate = factory.createStandardPredicate("DoublePredicate", ConstantType.UniqueStringID, ConstantType.UniqueStringID);
+		singleIntPredicate = StandardPredicate.get("SingleIntPredicate", ConstantType.UniqueIntID);
+		dataStore.registerPredicate(singleIntPredicate);
+
+		doublePredicate = StandardPredicate.get("DoublePredicate", ConstantType.UniqueStringID, ConstantType.UniqueStringID);
 		dataStore.registerPredicate(doublePredicate);
 
 		// Rules
@@ -260,6 +258,33 @@ public class RuleStringTest {
 		);
 		rule.groundAll(manager, store);
 		PSLTest.compareGroundRules(expected, rule, store);
+	}
+
+	@Test
+	public void testLogicalIntRule() {
+		// Base Rule: SingleIntPredicate('1') & SinglePredicate(A) & SinglePredicate(B) -> DoublePredicate(A, B)
+		Rule rule;
+
+		Formula baseRule = new Implication(
+				new Conjunction(
+					new QueryAtom(singleIntPredicate, new UniqueIntID(1)),
+					new QueryAtom(singlePredicate, new Variable("A")),
+					new QueryAtom(singlePredicate, new Variable("B"))
+				),
+				new QueryAtom(doublePredicate, new Variable("A"), new Variable("B"))
+		);
+
+		// Unweighted (Not Squared)
+		rule = new UnweightedLogicalRule(baseRule);
+		assertEquals("( SINGLEINTPREDICATE('1') & SINGLEPREDICATE(A) & SINGLEPREDICATE(B) ) >> DOUBLEPREDICATE(A, B) .", rule.toString());
+
+		// Weighted, Squared
+		rule = new WeightedLogicalRule(baseRule, 10.0, true);
+		assertEquals("10.0: ( SINGLEINTPREDICATE('1') & SINGLEPREDICATE(A) & SINGLEPREDICATE(B) ) >> DOUBLEPREDICATE(A, B) ^2", rule.toString());
+
+		// Weighted, Not Squared
+		rule = new WeightedLogicalRule(baseRule, 10.0, false);
+		assertEquals("10.0: ( SINGLEINTPREDICATE('1') & SINGLEPREDICATE(A) & SINGLEPREDICATE(B) ) >> DOUBLEPREDICATE(A, B)", rule.toString());
 	}
 
 	@After

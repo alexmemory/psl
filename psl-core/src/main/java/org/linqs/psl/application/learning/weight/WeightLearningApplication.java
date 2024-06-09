@@ -19,10 +19,13 @@ package org.linqs.psl.application.learning.weight;
 
 import org.linqs.psl.application.ModelApplication;
 import org.linqs.psl.application.groundrulestore.GroundRuleStore;
+import org.linqs.psl.application.groundrulestore.MemoryGroundRuleStore;
 import org.linqs.psl.application.util.Grounding;
-import org.linqs.psl.config.ConfigBundle;
+import org.linqs.psl.config.Config;
 import org.linqs.psl.database.Database;
 import org.linqs.psl.database.atom.PersistedAtomManager;
+import org.linqs.psl.evaluation.statistics.ContinuousEvaluator;
+import org.linqs.psl.evaluation.statistics.Evaluator;
 import org.linqs.psl.model.atom.ObservedAtom;
 import org.linqs.psl.model.atom.GroundAtom;
 import org.linqs.psl.model.atom.RandomVariableAtom;
@@ -33,8 +36,12 @@ import org.linqs.psl.model.rule.WeightedGroundRule;
 import org.linqs.psl.model.rule.WeightedRule;
 import org.linqs.psl.model.rule.misc.GroundValueConstraint;
 import org.linqs.psl.reasoner.Reasoner;
+import org.linqs.psl.reasoner.admm.ADMMReasoner;
+import org.linqs.psl.reasoner.admm.term.ADMMTermStore;
+import org.linqs.psl.reasoner.admm.term.ADMMTermGenerator;
 import org.linqs.psl.reasoner.term.TermGenerator;
 import org.linqs.psl.reasoner.term.TermStore;
+import org.linqs.psl.util.RandUtils;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -49,7 +56,7 @@ import java.util.Set;
 /**
  * Abstract class for learning the weights of weighted mutableRules from data for a model.
  * All non-abstract children should have a constructor that takes:
- * (List<Rule>, Database (rv), Database (observed), ConfigBundle).
+ * (List<Rule>, Database (rv), Database (observed)).
  */
 public abstract class WeightLearningApplication implements ModelApplication {
 	private static final Logger log = LoggerFactory.getLogger(WeightLearningApplication.class);
@@ -63,29 +70,46 @@ public abstract class WeightLearningApplication implements ModelApplication {
 	 * The class to use for inference.
 	 */
 	public static final String REASONER_KEY = CONFIG_PREFIX + ".reasoner";
-	public static final String REASONER_DEFAULT = "org.linqs.psl.reasoner.admm.ADMMReasoner";
+	public static final String REASONER_DEFAULT = ADMMReasoner.class.getName();
 
 	/**
 	 * The class to use for ground rule storage.
 	 */
 	public static final String GROUND_RULE_STORE_KEY = CONFIG_PREFIX + ".groundrulestore";
-	public static final String GROUND_RULE_STORE_DEFAULT = "org.linqs.psl.application.groundrulestore.MemoryGroundRuleStore";
+	public static final String GROUND_RULE_STORE_DEFAULT = MemoryGroundRuleStore.class.getName();
 
 	/**
 	 * The class to use for term storage.
 	 * Should be compatible with REASONER_KEY.
 	 */
 	public static final String TERM_STORE_KEY = CONFIG_PREFIX + ".termstore";
-	public static final String TERM_STORE_DEFAULT = "org.linqs.psl.reasoner.admm.term.ADMMTermStore";
+	public static final String TERM_STORE_DEFAULT = ADMMTermStore.class.getName();
 
 	/**
 	 * The class to use for term generator.
 	 * Should be compatible with REASONER_KEY and TERM_STORE_KEY.
 	 */
 	public static final String TERM_GENERATOR_KEY = CONFIG_PREFIX + ".termgenerator";
-	public static final String TERM_GENERATOR_DEFAULT = "org.linqs.psl.reasoner.admm.term.ADMMTermGenerator";
+	public static final String TERM_GENERATOR_DEFAULT = ADMMTermGenerator.class.getName();
 
-	protected ConfigBundle config;
+	/**
+	 * An evalautor capable of producing a score for the current weight configuration.
+	 * Child methods may use this at their own discrection.
+	 * This is only used for logging/information, and not for gradients.
+	 */
+	public static final String EVALUATOR_KEY = CONFIG_PREFIX + ".evaluator";
+	public static final String EVALUATOR_DEFAULT = ContinuousEvaluator.class.getName();
+
+	/**
+	 * Randomize weights before running.
+	 * The randomization will happen during ground model initialization.
+	 */
+	public static final String RANDOM_WEIGHTS_KEY = CONFIG_PREFIX + ".randomweights";
+	public static final boolean RANDOM_WEIGHTS_DEFAULT = false;
+	public static final int MAX_RANDOM_WEIGHT = 100;
+
+	public static final int MIN_ADMM_STEPS = 3;
+
 	protected boolean supportsLatentVariables;
 
 	protected Database rvDB;
@@ -114,14 +138,23 @@ public abstract class WeightLearningApplication implements ModelApplication {
 	protected TermStore termStore;
 	protected TermStore latentTermStore;
 
+	protected Evaluator evaluator;
+
 	private boolean groundModelInit;
 
+	/**
+	 * Flags to track if the current variable configuration is an MPE state.
+	 * This will get set to true when computeMPEState is called,
+	 * but besides that it is up to children to set to false when weights are changed.
+	 */
+	protected boolean inMPEState;
+	protected boolean inLatentMPEState;
+
 	public WeightLearningApplication(List<Rule> rules, Database rvDB, Database observedDB,
-			boolean supportsLatentVariables, ConfigBundle config) {
+			boolean supportsLatentVariables) {
 		this.rvDB = rvDB;
 		this.observedDB = observedDB;
 		this.supportsLatentVariables = supportsLatentVariables;
-		this.config = config;
 
 		allRules = new ArrayList<Rule>();
 		mutableRules = new ArrayList<WeightedRule>();
@@ -138,6 +171,10 @@ public abstract class WeightLearningApplication implements ModelApplication {
 		expectedIncompatibility = new double[mutableRules.size()];
 
 		groundModelInit = false;
+		inMPEState = false;
+		inLatentMPEState = false;
+
+		evaluator = (Evaluator)Config.getNewObject(EVALUATOR_KEY, EVALUATOR_DEFAULT);
 	}
 
 	/**
@@ -163,13 +200,100 @@ public abstract class WeightLearningApplication implements ModelApplication {
 		doLearn();
 	}
 
+	/**
+	 * Do the actual learning procedure.
+	 */
 	protected abstract void doLearn();
+
+	/**
+	 * Set a budget (give as a proportion of the max budget).
+	 * Child implementations should make sure to override this and call up the super chain.
+	 */
+	public void setBudget(double budget) {
+		if (reasoner instanceof ADMMReasoner) {
+			int maxIterations = Config.getInt(ADMMReasoner.MAX_ITER_KEY, ADMMReasoner.MAX_ITER_DEFAULT);
+			int iterations = (int)Math.ceil(maxIterations * budget);
+			((ADMMReasoner)reasoner).setMaxIter((int)Math.max(MIN_ADMM_STEPS, iterations));
+
+			if (termStore instanceof ADMMTermStore) {
+				((ADMMTermStore)termStore).resetLocalVairables();
+			}
+		}
+	}
+
+	/**
+	 * Initialize all the infrastructure dealing with the ground model.
+	 * Children should favor overriding postInitGroundModel() instead of this.
+	 */
+	protected void initGroundModel() {
+		if (groundModelInit) {
+			return;
+		}
+
+		PersistedAtomManager atomManager = createAtomManager();
+
+		// Ensure all targets from the observed (truth) database exist in the RV database.
+		ensureTargets(atomManager);
+
+		GroundRuleStore groundRuleStore = (GroundRuleStore)Config.getNewObject(GROUND_RULE_STORE_KEY, GROUND_RULE_STORE_DEFAULT);
+
+		log.info("Grounding out model.");
+		int groundCount = Grounding.groundAll(allRules, atomManager, groundRuleStore);
+
+		initGroundModel(atomManager, groundRuleStore);
+	}
+
+	/**
+	 * Init the ground model using an already populated ground rule store.
+	 * All the targets from the obserevd database should already exist in the RV database
+	 * before this ground rule store was populated.
+	 * This means that this variant will not call ensureTargets() (unlike the no parameter variant).
+	 */
+	public void initGroundModel(GroundRuleStore groundRuleStore) {
+		if (groundModelInit) {
+			return;
+		}
+
+		initGroundModel(createAtomManager(), groundRuleStore);
+	}
+
+	private void initGroundModel(PersistedAtomManager atomManager, GroundRuleStore groundRuleStore) {
+		if (groundModelInit) {
+			return;
+		}
+
+		TermStore termStore = (TermStore)Config.getNewObject(TERM_STORE_KEY, TERM_STORE_DEFAULT);
+		TermGenerator termGenerator = (TermGenerator)Config.getNewObject(TERM_GENERATOR_KEY, TERM_GENERATOR_DEFAULT);
+
+		log.debug("Initializing objective terms for {} ground rules.", groundRuleStore.size());
+		@SuppressWarnings("unchecked")
+		int termCount = termGenerator.generateTerms(groundRuleStore, termStore);
+		log.debug("Generated {} objective terms from {} ground rules.", termCount, groundRuleStore.size());
+
+		TrainingMap trainingMap = new TrainingMap(atomManager, observedDB, false);
+		if (!supportsLatentVariables && trainingMap.getLatentVariables().size() > 0) {
+			Set<RandomVariableAtom> latentVariables = trainingMap.getLatentVariables();
+			throw new IllegalArgumentException(String.format(
+					"All RandomVariableAtoms must have corresponding ObservedAtoms, found %d latent variables." +
+					" Latent variables are not supported by this WeightLearningApplication (%s)." +
+					" Example latent variable: [%s].",
+					latentVariables.size(),
+					this.getClass().getName(),
+					latentVariables.iterator().next()));
+		}
+
+		Reasoner reasoner = (Reasoner)Config.getNewObject(REASONER_KEY, REASONER_DEFAULT);
+
+		initGroundModel(reasoner, groundRuleStore, termStore, termGenerator, atomManager, trainingMap);
+	}
 
 	/**
 	 * Pass in all the ground model infrastructure.
 	 * The caller should be careful calling this method instead of the other variant.
+	 * Children should favor overriding postInitGroundModel() instead of this.
 	 */
-	public void initGroundModel(Reasoner reasoner, GroundRuleStore groundRuleStore,
+	public void initGroundModel(
+			Reasoner reasoner, GroundRuleStore groundRuleStore,
 			TermStore termStore, TermGenerator termGenerator,
 			PersistedAtomManager atomManager, TrainingMap trainingMap) {
 		if (groundModelInit) {
@@ -183,50 +307,27 @@ public abstract class WeightLearningApplication implements ModelApplication {
 		this.atomManager = atomManager;
 		this.trainingMap = trainingMap;
 
+		if (Config.getBoolean(RANDOM_WEIGHTS_KEY, RANDOM_WEIGHTS_DEFAULT)) {
+			initRandomWeights();
+		}
+
+		postInitGroundModel();
+
 		groundModelInit = true;
+	}
+
+	private void initRandomWeights() {
+		log.trace("Randomly Weighted Rules:");
+		for (WeightedRule rule : mutableRules) {
+			rule.setWeight(RandUtils.nextInt(MAX_RANDOM_WEIGHT) + 1);
+			log.trace("	" + rule.toString());
+		}
 	}
 
 	/**
-	 * Initialize all the infrastructure dealing with the ground model.
+	 * A convenient place for children to do additional ground model initialization.
 	 */
-	protected void initGroundModel() {
-		if (groundModelInit) {
-			return;
-		}
-
-		reasoner = (Reasoner)config.getNewObject(REASONER_KEY, REASONER_DEFAULT);
-		groundRuleStore = (GroundRuleStore)config.getNewObject(GROUND_RULE_STORE_KEY, GROUND_RULE_STORE_DEFAULT);
-		termStore = (TermStore)config.getNewObject(TERM_STORE_KEY, TERM_STORE_DEFAULT);
-		termGenerator = (TermGenerator)config.getNewObject(TERM_GENERATOR_KEY, TERM_GENERATOR_DEFAULT);
-
-		atomManager = createAtomManager();
-
-		// Ensure all targets from the observed (truth) database
-		// exist in the RV database.
-		ensureTargets();
-
-		trainingMap = new TrainingMap(atomManager, observedDB, false);
-		if (!supportsLatentVariables && trainingMap.getLatentVariables().size() > 0) {
-			Set<RandomVariableAtom> latentVariables = trainingMap.getLatentVariables();
-			throw new IllegalArgumentException(String.format(
-					"All RandomVariableAtoms must have corresponding ObservedAtoms, found %d latent variables." +
-					" Latent variables are not supported by this WeightLearningApplication (%s)." +
-					" Example latent variable: [%s].",
-					latentVariables.size(),
-					this.getClass().getName(),
-					latentVariables.iterator().next()));
-		}
-
-		log.info("Grounding out model.");
-		int groundCount = Grounding.groundAll(allRules, atomManager, groundRuleStore);
-
-		log.debug("Initializing objective terms for {} ground rules.", groundCount);
-		@SuppressWarnings("unchecked")
-		int termCount = termGenerator.generateTerms(groundRuleStore, termStore);
-		log.debug("Generated {} objective terms from {} ground rules.", termCount, groundCount);
-
-		groundModelInit = true;
-	}
+	protected void postInitGroundModel() {}
 
 	/**
 	 * The same as initGroundModel, but for latent variables.
@@ -236,8 +337,8 @@ public abstract class WeightLearningApplication implements ModelApplication {
 	 * All non-latent variables (from the training map) will be pegged to their truth values.
 	 */
 	protected void initLatentGroundModel() {
-		latentGroundRuleStore = (GroundRuleStore)config.getNewObject(GROUND_RULE_STORE_KEY, GROUND_RULE_STORE_DEFAULT);
-		latentTermStore = (TermStore)config.getNewObject(TERM_STORE_KEY, TERM_STORE_DEFAULT);
+		latentGroundRuleStore = (GroundRuleStore)Config.getNewObject(GROUND_RULE_STORE_KEY, GROUND_RULE_STORE_DEFAULT);
+		latentTermStore = (TermStore)Config.getNewObject(TERM_STORE_KEY, TERM_STORE_DEFAULT);
 
 		log.info("Grounding out latent model.");
 		int groundCount = Grounding.groundAll(allRules, atomManager, latentGroundRuleStore);
@@ -256,14 +357,31 @@ public abstract class WeightLearningApplication implements ModelApplication {
 
 	@SuppressWarnings("unchecked")
 	protected void computeMPEState() {
-		termGenerator.updateWeights(groundRuleStore, termStore);
+		if (inMPEState) {
+			return;
+		}
+
+		// TEST
+		// termGenerator.updateWeights(groundRuleStore, termStore);
+
+		termStore.clear();
+		int count = termGenerator.generateTerms(groundRuleStore, termStore);
+
 		reasoner.optimize(termStore);
+
+		inMPEState = true;
 	}
 
 	@SuppressWarnings("unchecked")
 	protected void computeLatentMPEState() {
+		if (inLatentMPEState) {
+			return;
+		}
+
 		termGenerator.updateWeights(latentGroundRuleStore, latentTermStore);
 		reasoner.optimize(latentTermStore);
+
+		inLatentMPEState = true;
 	}
 
 	/**
@@ -361,13 +479,15 @@ public abstract class WeightLearningApplication implements ModelApplication {
 		atomManager = null;
 		rvDB = null;
 		observedDB = null;
-		config = null;
 	}
 
 	/**
 	 * Set RandomVariableAtoms with training labels to their observed values.
 	 */
 	protected void setLabeledRandomVariables() {
+		inMPEState = false;
+		inLatentMPEState = false;
+
 		for (Map.Entry<RandomVariableAtom, ObservedAtom> entry : trainingMap.getTrainingMap().entrySet()) {
 			entry.getKey().setValue(entry.getValue().getValue());
 		}
@@ -377,6 +497,9 @@ public abstract class WeightLearningApplication implements ModelApplication {
 	 * Set RandomVariableAtoms with training labels to their default values.
 	 */
 	protected void setDefaultRandomVariables() {
+		inMPEState = false;
+		inLatentMPEState = false;
+
 		for (RandomVariableAtom atom : trainingMap.getTrainingMap().keySet()) {
 			atom.setValue(0.0);
 		}
@@ -397,9 +520,9 @@ public abstract class WeightLearningApplication implements ModelApplication {
 	/**
 	 * Make sure that all targets from the observed database exist in the RV database.
 	 */
-	private void ensureTargets() {
+	private void ensureTargets(PersistedAtomManager atomManager) {
 		// Iterate through all of the registered predicates in the observed.
-		for (StandardPredicate predicate : observedDB.getRegisteredPredicates()) {
+		for (StandardPredicate predicate : observedDB.getDataStore().getRegisteredPredicates()) {
 			// Ignore any closed predicates.
 			if (observedDB.isClosed(predicate)) {
 				continue;
@@ -423,10 +546,10 @@ public abstract class WeightLearningApplication implements ModelApplication {
 
 	/**
 	 * Construct a weight learning application given the data.
-	 * Look for a constructor like: (List<Rule>, Database (rv), Database (observed), ConfigBundle).
+	 * Look for a constructor like: (List<Rule>, Database (rv), Database (observed)).
 	 */
 	public static WeightLearningApplication getWLA(String className, List<Rule> rules,
-			Database randomVariableDatabase, Database observedTruthDatabase, ConfigBundle config) {
+			Database randomVariableDatabase, Database observedTruthDatabase) {
 		Class<? extends WeightLearningApplication> classObject = null;
 		try {
 			@SuppressWarnings("unchecked")
@@ -438,14 +561,14 @@ public abstract class WeightLearningApplication implements ModelApplication {
 
 		Constructor<? extends WeightLearningApplication> constructor = null;
 		try {
-			constructor = classObject.getConstructor(List.class, Database.class, Database.class, ConfigBundle.class);
+			constructor = classObject.getConstructor(List.class, Database.class, Database.class);
 		} catch (NoSuchMethodException ex) {
 			throw new IllegalArgumentException("No sutible constructor found for weight learner: " + className + ".", ex);
 		}
 
 		WeightLearningApplication wla = null;
 		try {
-			wla = constructor.newInstance(rules, randomVariableDatabase, observedTruthDatabase, config);
+			wla = constructor.newInstance(rules, randomVariableDatabase, observedTruthDatabase);
 		} catch (InstantiationException ex) {
 			throw new RuntimeException("Unable to instantiate weight learner (" + className + ")", ex);
 		} catch (IllegalAccessException ex) {

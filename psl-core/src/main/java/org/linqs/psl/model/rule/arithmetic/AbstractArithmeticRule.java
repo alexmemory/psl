@@ -18,6 +18,7 @@
 package org.linqs.psl.model.rule.arithmetic;
 
 import org.linqs.psl.application.groundrulestore.GroundRuleStore;
+import org.linqs.psl.config.Config;
 import org.linqs.psl.database.DatabaseQuery;
 import org.linqs.psl.database.ResultList;
 import org.linqs.psl.database.atom.AtomManager;
@@ -80,18 +81,28 @@ public abstract class AbstractArithmeticRule extends AbstractRule {
 	private static final Logger log = LoggerFactory.getLogger(AbstractArithmeticRule.class);
 
 	/**
-	 * The delimiter  to use when building summation substitutions.
+	 * Prefix of property keys used by this class.
+	 */
+	public static final String CONFIG_PREFIX = "arithmeticrule";
+
+	/**
+	 * The delimiter to use when building summation substitutions.
 	 * Make sure the value for this key does not appear in ground atoms that use a summation.
 	 */
-	private static String DELIM = ";";
+	public static final String DELIM_KEY = CONFIG_PREFIX + ".delim";
+	public static final String DELIM_DEFAULT = ";";
 
 	protected final ArithmeticRuleExpression expression;
 	protected final Map<SummationVariable, Formula> filters;
+
+	protected String delim;
 
 	public AbstractArithmeticRule(ArithmeticRuleExpression expression, Map<SummationVariable, Formula> filterClauses, String name) {
 		super(name);
 		this.expression = expression;
 		this.filters = filterClauses;
+
+		delim = Config.getString(DELIM_KEY, DELIM_DEFAULT);
 
 		// Ensures that all filter Formulas are in DNF
 		for (Map.Entry<SummationVariable, Formula> entry : this.filters.entrySet()) {
@@ -176,15 +187,13 @@ public abstract class AbstractArithmeticRule extends AbstractRule {
 			// Note that unweighed rules will ground an equality, while weighted rules will instead
 			// ground a largerThan and lessThan.
 			if (isWeighted() && FunctionComparator.Equality.equals(expression.getComparator())) {
-				groundRuleStore.addGroundRule(
-						makeGroundRule(coefficients, groundAtoms, FunctionComparator.LargerThan, finalCoefficient));
-				groundRuleStore.addGroundRule(
-						makeGroundRule(coefficients, groundAtoms, FunctionComparator.SmallerThan, finalCoefficient));
-				groundCount += 2;
+				groundCount += addGroundRule(
+						groundRuleStore, makeGroundRule(coefficients, groundAtoms, FunctionComparator.LargerThan, finalCoefficient));
+				groundCount += addGroundRule(
+						groundRuleStore, makeGroundRule(coefficients, groundAtoms, FunctionComparator.SmallerThan, finalCoefficient));
 			} else {
-				groundRuleStore.addGroundRule(
-						makeGroundRule(coefficients, groundAtoms, expression.getComparator(), finalCoefficient));
-				groundCount++;
+				groundCount += addGroundRule(
+						groundRuleStore, makeGroundRule(coefficients, groundAtoms, expression.getComparator(), finalCoefficient));
 			}
 		}
 
@@ -245,7 +254,7 @@ public abstract class AbstractArithmeticRule extends AbstractRule {
 
 			for (SummationVariable summationVar : expression.getSummationVariables()) {
 				Constant rawSubs = groundingResults.get(groundingIndex, summationVar.getVariable());
-				String[] stringSubs = ((StringAttribute)rawSubs).getValue().split(DELIM);
+				String[] stringSubs = ((StringAttribute)rawSubs).getValue().split(delim);
 
 				Constant[] constantSubs = new Constant[stringSubs.length];
 				for (int i = 0; i < stringSubs.length; i++) {
@@ -276,14 +285,13 @@ public abstract class AbstractArithmeticRule extends AbstractRule {
 			// Note that unweighed rules will ground an equality, while weighted rules will instead
 			// ground a largerThan and lessThan.
 			if (isWeighted() && FunctionComparator.Equality.equals(expression.getComparator())) {
-				groundRuleStore.addGroundRule(
-						makeGroundRule(coefficients, groundAtoms, FunctionComparator.LargerThan, finalCoefficient));
-				groundRuleStore.addGroundRule(
-						makeGroundRule(coefficients, groundAtoms, FunctionComparator.SmallerThan, finalCoefficient));
-				groundCount += 2;
+				groundCount += addGroundRule(
+						groundRuleStore, makeGroundRule(coefficients, groundAtoms, FunctionComparator.LargerThan, finalCoefficient));
+				groundCount += addGroundRule(
+						groundRuleStore, makeGroundRule(coefficients, groundAtoms, FunctionComparator.SmallerThan, finalCoefficient));
 			} else {
-				groundRuleStore.addGroundRule(
-						makeGroundRule(coefficients, groundAtoms, expression.getComparator(), finalCoefficient));
+				groundCount += addGroundRule(
+						groundRuleStore, makeGroundRule(coefficients, groundAtoms, expression.getComparator(), finalCoefficient));
 				groundCount++;
 			}
 		}
@@ -344,7 +352,7 @@ public abstract class AbstractArithmeticRule extends AbstractRule {
 		// Add all the summation columns as aggregates.
 		for (SummationVariable summationVar : expression.getSummationVariables()) {
 			Variable var = summationVar.getVariable();
-			String aggExpression = driver.getStringAggregate(var.getName(), DELIM, true);
+			String aggExpression = driver.getStringAggregate(var.getName(), delim, true);
 			String column = aggExpression + " AS " + var.getName();
 			columns[projectionMap.get(var).intValue()] = column;
 		}
@@ -517,6 +525,44 @@ public abstract class AbstractArithmeticRule extends AbstractRule {
 	}
 
 	/**
+	 * Check a rule for triviality and add it to the GRS if it is non-trivial.
+	 * @return the number of ground rules added to the store (1 or 0).
+	 */
+	private int addGroundRule(GroundRuleStore groundRuleStore, AbstractGroundArithmeticRule rule) {
+		// Start simple and just look for rules with a single atom.
+		if (rule.getOrderedAtoms().length == 1) {
+			if (FunctionComparator.LargerThan.equals(rule.getComparator())) {
+				double constantMax = 0.0;
+				if (rule.getCoefficients()[0] < 0.0) {
+					constantMax = -1.0;
+				}
+
+				// Trivial if either of the below situations:
+				//  +x >= y (y <= 0.0)
+				//  -x >= y (y <= -1.0)
+				if (rule.getConstant() <= constantMax) {
+					return 0;
+				}
+			} else if (FunctionComparator.SmallerThan.equals(rule.getComparator())) {
+				double constantMin = 1.0;
+				if (rule.getCoefficients()[0] < 0.0) {
+					constantMin = 0.0;
+				}
+
+				// Trivial if either of the below situations:
+				//  +x <= y (y >= 1.0)
+				//  -x <= y (y >= 0.0)
+				if (rule.getConstant() >= constantMin) {
+					return 0;
+				}
+			}
+		}
+
+		groundRuleStore.addGroundRule(rule);
+		return 1;
+	}
+
+	/**
 	 * Validate what we can about an abstract rule at creation:
 	 *	 - An argument to a filter must appear in the arithmetic expression.
 	 *	 - All variables used in a filter are either the argument to the filter or
@@ -581,11 +627,6 @@ public abstract class AbstractArithmeticRule extends AbstractRule {
 
 	protected abstract AbstractGroundArithmeticRule makeGroundRule(List<Double> coeffs,
 			List<GroundAtom> atoms, FunctionComparator comparator, double c);
-
-	// TODO(eriq): Remove this once global configuration is implemented.
-	public static void setDelim(String delim) {
-		DELIM = delim;
-	}
 
 	@Override
 	public int hashCode() {
