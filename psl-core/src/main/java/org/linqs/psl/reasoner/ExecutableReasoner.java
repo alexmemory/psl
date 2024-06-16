@@ -1,7 +1,7 @@
 /*
  * This file is part of the PSL software.
  * Copyright 2011-2015 University of Maryland
- * Copyright 2013-2019 The Regents of the University of California
+ * Copyright 2013-2022 The Regents of the University of California
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -17,17 +17,14 @@
  */
 package org.linqs.psl.reasoner;
 
-import org.linqs.psl.config.Config;
+import org.linqs.psl.config.Options;
 import org.linqs.psl.reasoner.term.TermStore;
-
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
+import org.linqs.psl.util.FileUtils;
+import org.linqs.psl.util.Logger;
 
 import java.io.BufferedReader;
 import java.io.BufferedWriter;
 import java.io.File;
-import java.io.FileReader;
-import java.io.FileWriter;
 import java.io.IOException;
 import java.io.InputStreamReader;
 import java.util.ArrayList;
@@ -39,30 +36,8 @@ import java.util.List;
  *
  * Ground models are provided to the executable and results are read via temporary files.
  */
-public abstract class ExecutableReasoner implements Reasoner {
-    private static final Logger log = LoggerFactory.getLogger(ExecutableReasoner.class);
-
-    /**
-     * Prefix of property keys used by this class.
-     */
-    public static final String CONFIG_PREFIX = "executablereasoner";
-
-    /**
-     * Key for int property for the path of the executable.
-     */
-    public static final String EXECUTABLE_PATH_KEY = CONFIG_PREFIX + ".executablepath";
-
-    /**
-     * Key for boolean property for whether to delete the input file to external the reasoner on close.
-     */
-    public static final String CLEANUP_INPUT_KEY = CONFIG_PREFIX + ".cleanupinput";
-    public static final boolean CLEANUP_INPUT_DEFAULT = true;
-
-    /**
-     * Key for boolean property for whether to delete the output file to external the reasoner on close.
-     */
-    public static final String CLEANUP_OUTPUT_KEY = CONFIG_PREFIX + ".cleanupoutput";
-    public static final boolean CLEANUP_OUTPUT_DEFAULT = true;
+public abstract class ExecutableReasoner extends Reasoner {
+    private static final Logger log = Logger.getLogger(ExecutableReasoner.class);
 
     /**
      * The file that PSL will write for the reasoner.
@@ -85,9 +60,9 @@ public abstract class ExecutableReasoner implements Reasoner {
     protected String[] args;
 
     public ExecutableReasoner() {
-        this.executablePath = Config.getString(EXECUTABLE_PATH_KEY, "");
-        this.cleanupInput = Config.getBoolean(CLEANUP_INPUT_KEY, CLEANUP_INPUT_DEFAULT);
-        this.cleanupOutput = Config.getBoolean(CLEANUP_OUTPUT_KEY, CLEANUP_OUTPUT_DEFAULT);
+        this.executablePath = Options.EXECUTABLE_REASONER_PATH.getString();
+        this.cleanupInput = Options.EXECUTABLE_CLEAN_INPUT.getBoolean();
+        this.cleanupOutput = Options.EXECUTABLE_CLEAN_OUTPUT.getBoolean();
     }
 
     public ExecutableReasoner(String executablePath,
@@ -98,19 +73,17 @@ public abstract class ExecutableReasoner implements Reasoner {
         this.executableOutputPath = executableOutputPath;
         this.args = args;
 
-        this.cleanupInput = Config.getBoolean(CLEANUP_INPUT_KEY, CLEANUP_INPUT_DEFAULT);
-        this.cleanupOutput = Config.getBoolean(CLEANUP_OUTPUT_KEY, CLEANUP_OUTPUT_DEFAULT);
+        this.cleanupInput = Options.EXECUTABLE_CLEAN_INPUT.getBoolean();
+        this.cleanupOutput = Options.EXECUTABLE_CLEAN_OUTPUT.getBoolean();
     }
 
     @Override
-    public void optimize(TermStore termStore) {
+    public double optimize(TermStore termStore) {
         log.debug("Writing model file: " + executableInputPath);
         File modelFile = new File(executableInputPath);
 
-        try {
-            BufferedWriter modelWriter = new BufferedWriter(new FileWriter(modelFile));
+        try (BufferedWriter modelWriter = FileUtils.getBufferedWriter(modelFile)) {
             writeModel(modelWriter, termStore);
-            modelWriter.close();
         } catch (IOException ex) {
             throw new RuntimeException("Failed to write model file: " + executableInputPath, ex);
         }
@@ -124,14 +97,14 @@ public abstract class ExecutableReasoner implements Reasoner {
 
         log.debug("Reasoner finished. Reading results file: " + executableOutputPath);
         File resultsFile = new File(executableOutputPath);
-        try {
-            BufferedReader resultsReader = new BufferedReader(new FileReader(resultsFile));
+        try (BufferedReader resultsReader = FileUtils.getBufferedReader(resultsFile)) {
             readResults(resultsReader, termStore);
-            resultsReader.close();
         } catch (IOException ex) {
             throw new RuntimeException("Failed to read results file: " + executableOutputPath, ex);
         }
+
         log.debug("Finished reading results file.");
+        return -1.0;
     }
 
     protected void callReasoner() throws IOException {
@@ -143,7 +116,7 @@ public abstract class ExecutableReasoner implements Reasoner {
         pb.redirectErrorStream(true);
         Process proc = pb.start();
 
-        BufferedReader stdout = new BufferedReader(new InputStreamReader(proc.getInputStream()));
+        BufferedReader stdout = FileUtils.getBufferedReader(proc.getInputStream());
         String line;
         while ((line = stdout.readLine()) != null) {
             log.debug(line);
@@ -165,11 +138,11 @@ public abstract class ExecutableReasoner implements Reasoner {
     @Override
     public void close() {
         if (cleanupInput) {
-            (new File(executableInputPath)).delete();
+            FileUtils.delete(executableInputPath);
         }
 
         if (cleanupOutput) {
-            (new File(executableOutputPath)).delete();
+            FileUtils.delete(executableOutputPath);
         }
     }
 

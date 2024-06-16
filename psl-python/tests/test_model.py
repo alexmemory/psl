@@ -1,7 +1,7 @@
 '''
 This file is part of the PSL software.
 Copyright 2011-2015 University of Maryland
-Copyright 2013-2019 The Regents of the University of California
+Copyright 2013-2022 The Regents of the University of California
 
 Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
@@ -15,6 +15,8 @@ WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 See the License for the specific language governing permissions and
 limitations under the License.
 '''
+
+import os
 
 import tests.data.models.simpleacquaintances
 from pslpython.model import Model
@@ -57,3 +59,13 @@ class TestModel(PSLTest):
         except PredicateError:
             # Expected
             pass
+
+    def test_numeric_data(self):
+        data_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), 'data', 'simple-acquaintances', 'numeric_data'))
+        results = tests.data.models.simpleacquaintances.run(data_dir)
+
+        self.assertEquals(len(results), 1)
+
+        predicate, frame = list(results.items())[0]
+        self.assertEquals(predicate.name(), 'KNOWS')
+        self.assertEquals(len(frame), 6)

@@ -1,7 +1,7 @@
 /*
  * This file is part of the PSL software.
  * Copyright 2011-2015 University of Maryland
- * Copyright 2013-2019 The Regents of the University of California
+ * Copyright 2013-2022 The Regents of the University of California
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -20,44 +20,20 @@ package org.linqs.psl.parser;
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.fail;
 
-import org.linqs.psl.PSLTest;
-import org.linqs.psl.database.DataStore;
-import org.linqs.psl.database.rdbms.RDBMSDataStore;
-import org.linqs.psl.database.rdbms.driver.H2DatabaseDriver;
-import org.linqs.psl.database.rdbms.driver.H2DatabaseDriver.Type;
 import org.linqs.psl.model.atom.QueryAtom;
-import org.linqs.psl.model.predicate.StandardPredicate;
 import org.linqs.psl.model.rule.Rule;
 import org.linqs.psl.model.rule.arithmetic.WeightedArithmeticRule;
 import org.linqs.psl.model.rule.arithmetic.expression.SummationAtom;
 import org.linqs.psl.model.rule.arithmetic.expression.SummationAtomOrAtom;
-import org.linqs.psl.model.term.ConstantType;
+import org.linqs.psl.test.PSLTest;
 import org.linqs.psl.util.ListUtils;
 
-import org.junit.After;
-import org.junit.Before;
 import org.junit.Test;
 
 import java.util.ArrayList;
 import java.util.List;
 
-public class ModelLoaderTest {
-    private DataStore dataStore;
-
-    private StandardPredicate singlePredicate;
-    private StandardPredicate doublePredicate;
-
-    @Before
-    public void setup() {
-        dataStore = new RDBMSDataStore(new H2DatabaseDriver(Type.Memory, this.getClass().getName(), true));
-
-        singlePredicate = StandardPredicate.get("Single", ConstantType.UniqueStringID);
-        dataStore.registerPredicate(singlePredicate);
-
-        doublePredicate = StandardPredicate.get("Double", ConstantType.UniqueStringID, ConstantType.UniqueStringID);
-        dataStore.registerPredicate(doublePredicate);
-    }
-
+public class ModelLoaderTest extends LoaderTest {
     @Test
     public void testBase() {
         String input =
@@ -68,7 +44,7 @@ public class ModelLoaderTest {
             "5.0: ( SINGLE(B) & DOUBLE(B, A) ) >> SINGLE(A) ^2"
         };
 
-        PSLTest.assertModel(dataStore, input, expected);
+        PSLTest.assertModel(input, expected);
     }
 
     @Test
@@ -80,7 +56,7 @@ public class ModelLoaderTest {
             "~( SINGLE(A) ) ."
         };
 
-        PSLTest.assertModel(dataStore, input, expected);
+        PSLTest.assertModel(input, expected);
     }
 
     @Test
@@ -93,7 +69,7 @@ public class ModelLoaderTest {
         String input = String.format("1: %s >> Single(Z) ^2", ListUtils.join(" & ", parts));
         String expected = String.format("1.0: ( %s ) >> SINGLE(Z) ^2", ListUtils.join(" & ", parts).toUpperCase());
 
-        PSLTest.assertModel(dataStore, input, new String[]{expected});
+        PSLTest.assertModel(input, new String[]{expected});
     }
 
     @Test
@@ -135,7 +111,7 @@ public class ModelLoaderTest {
             "1.0: ( SINGLE(K) & DOUBLE(K, L) ) >> SINGLE(L) ^2"
         };
 
-        PSLTest.assertModel(dataStore, input, expected);
+        PSLTest.assertModel(input, expected);
     }
 
     @Test
@@ -206,7 +182,7 @@ public class ModelLoaderTest {
             "1.0: ( SINGLE(A) & DOUBLE(A, '_A_B_') & SINGLE('_A_B_') ) >> DOUBLE(A, '_A_B_') ^2"
         };
 
-        PSLTest.assertModel(dataStore, input, expected);
+        PSLTest.assertModel(input, expected);
     }
 
     @Test
@@ -221,27 +197,23 @@ public class ModelLoaderTest {
             "1: 5E6 Single(A) = 1 ^2\n" +
             "1: 5e6 Single(A) = 1 ^2\n" +
             "1: -5e6 Single(A) = 1 ^2\n" +
-            // "1: 5e-2 Single(A) = 1 ^2\n" +
             "1: 1.2e6 Single(A) = 1 ^2\n" +
             "1: -1.2e6 Single(A) = 1 ^2\n" +
-            // "1: 1.2e-2 Single(A) = 1 ^2\n" +
             "";
         String[] expected = new String[]{
             "1.0: 1.0 * SINGLE(A) = 1.0 ^2",
-            "1.0: 1.0 * SINGLE(A) = 1.0 ^2",
+            // "1.0: 1.0 * SINGLE(A) = 1.0 ^2",  // Duplicate rule ignored.
             "1.0: 1.5 * SINGLE(A) = 1.0 ^2",
             "1.0: 0.5 * SINGLE(A) = 1.0 ^2",
             "1.0: -1.0 * SINGLE(A) = 1.0 ^2",
             "1.0: 5000000.0 * SINGLE(A) = 1.0 ^2",
-            "1.0: 5000000.0 * SINGLE(A) = 1.0 ^2",
+            // "1.0: 5000000.0 * SINGLE(A) = 1.0 ^2",  // Duplicate rule ignored.
             "1.0: -5000000.0 * SINGLE(A) = 1.0 ^2",
-            // "1.0: 5.0E-2 * SINGLE(A) = 1.0 ^2",
             "1.0: 1200000.0 * SINGLE(A) = 1.0 ^2",
             "1.0: -1200000.0 * SINGLE(A) = 1.0 ^2",
-            // "1.0: 1.2E-2 * SINGLE(A) = 1.0 ^2"
         };
 
-        PSLTest.assertModel(dataStore, input, expected);
+        PSLTest.assertModel(input, expected);
     }
 
     @Test
@@ -262,7 +234,7 @@ public class ModelLoaderTest {
             "1.0: SINGLE(A__) >> SINGLE(A__) ^2"
         };
 
-        PSLTest.assertModel(dataStore, input, expected);
+        PSLTest.assertModel(input, expected);
     }
 
     @Test
@@ -273,7 +245,7 @@ public class ModelLoaderTest {
             "0: Single(B) >> Single(B)\n" +
             "0.5: Single(C) >> Single(C)\n" +
             "999999: Single(D) >> Single(D)\n" +
-            "9999999999: Single(E) >> Single(E)\n" +
+            "9999999: Single(E) >> Single(E)\n" +
             "0000000001: Single(F) >> Single(F)\n" +
             "0.001: Single(G) >> Single(G)\n" +
             "0.00000001: Single(H) >> Single(H)\n" +
@@ -288,7 +260,7 @@ public class ModelLoaderTest {
             "0.0: SINGLE(B) >> SINGLE(B)",
             "0.5: SINGLE(C) >> SINGLE(C)",
             "999999.0: SINGLE(D) >> SINGLE(D)",
-            "9.999999999E9: SINGLE(E) >> SINGLE(E)",
+            "9999999.0: SINGLE(E) >> SINGLE(E)",
             "1.0: SINGLE(F) >> SINGLE(F)",
             "0.001: SINGLE(G) >> SINGLE(G)",
             "1.0E-8: SINGLE(H) >> SINGLE(H)",
@@ -299,7 +271,7 @@ public class ModelLoaderTest {
             "2.5E-6: SINGLE(M) >> SINGLE(M)"
         };
 
-        PSLTest.assertModel(dataStore, input, expected);
+        PSLTest.assertModel(input, expected);
     }
 
     @Test
@@ -312,7 +284,7 @@ public class ModelLoaderTest {
             "1.0: ( SINGLE(C) & DOUBLE(C, D) ) >> SINGLE(D) ^2"
         };
 
-        PSLTest.assertModel(dataStore, input, expected);
+        PSLTest.assertModel(input, expected);
     }
 
     @Test
@@ -325,7 +297,7 @@ public class ModelLoaderTest {
             "1.0: ( SINGLE(A) & DOUBLE(B, C) ) >> ( SINGLE(B) | SINGLE(C) ) ^2"
         };
 
-        PSLTest.assertModel(dataStore, input, expected);
+        PSLTest.assertModel(input, expected);
     }
 
     /**
@@ -347,17 +319,17 @@ public class ModelLoaderTest {
             "1.0: ( ~( SINGLE(G) ) & ~( ~( DOUBLE(G, H) ) ) ) >> ~( ~( ~( SINGLE(H) ) ) ) ^2"
         };
 
-        PSLTest.assertModel(dataStore, input, expected);
+        PSLTest.assertModel(input, expected);
 
         try {
-            PSLTest.assertRule(dataStore, "1: ~( Single(A) & Single(B) ) >> Double(A, B) ^2", "");
+            PSLTest.assertRule("1: ~( Single(A) & Single(B) ) >> Double(A, B) ^2", "");
             fail("Negation not allowed on a conjunction.");
         } catch (org.antlr.v4.runtime.RecognitionException ex) {
             // Exception expected.
         }
 
         try {
-            PSLTest.assertRule(dataStore, "1: Double(A, B) >> ~( Single(A) | Single(B) ) ^2", "");
+            PSLTest.assertRule("1: Double(A, B) >> ~( Single(A) | Single(B) ) ^2", "");
             fail("Negation not allowed on a disjunction.");
         } catch (org.antlr.v4.runtime.RecognitionException ex) {
             // Exception expected.
@@ -387,7 +359,7 @@ public class ModelLoaderTest {
             "1.0: ( ('Foo' != 'Bar') & DOUBLE(A, B) ) >> SINGLE(B) ^2"
         };
 
-        PSLTest.assertModel(dataStore, input, expected);
+        PSLTest.assertModel(input, expected);
     }
 
     @Test
@@ -417,7 +389,7 @@ public class ModelLoaderTest {
             "1.0: ( (U != V) & DOUBLE(U, V) ) >> SINGLE(V)"
         };
 
-        PSLTest.assertModel(dataStore, input, expected);
+        PSLTest.assertModel(input, expected);
     }
 
     @Test
@@ -428,10 +400,10 @@ public class ModelLoaderTest {
             "";
         String[] expected = new String[]{
             "1.0: 1.0 * SINGLE(A) = 1.0 ^2",
-            "1.0: 1.0 * SINGLE(A) = 1.0 ^2"
+            // "1.0: 1.0 * SINGLE(A) = 1.0 ^2"  // Duplicate rule ignored.
         };
 
-        PSLTest.assertModel(dataStore, input, expected);
+        PSLTest.assertModel(input, expected);
     }
 
     @Test
@@ -471,21 +443,21 @@ public class ModelLoaderTest {
             "0.0 * SINGLE(A) = 1.0 ."
         };
 
-        PSLTest.assertStringModel(dataStore, input, expected, true);
+        PSLTest.assertStringModel(input, expected, true);
     }
 
     @Test
     public void testLoadRuleBase() {
         String input = "1: Single(A) & Double(A, B) >> Single(B) ^2";
         String expected = "1.0: ( SINGLE(A) & DOUBLE(A, B) ) >> SINGLE(B) ^2";
-        PSLTest.assertRule(dataStore, input, expected);
+        PSLTest.assertRule(input, expected);
     }
 
     @Test
     public void testLoadRuleBadCount() {
         // Having zero rules is a parse error, so the exception is different.
         try {
-            PSLTest.assertRule(dataStore, "// Just a comment", "");
+            PSLTest.assertRule("// Just a comment", "");
             fail("ModelLoader.LoadRule() with no rule did not throw an exception.");
         } catch (org.antlr.v4.runtime.NoViableAltException ex) {
             // Exception expected.
@@ -497,7 +469,7 @@ public class ModelLoaderTest {
         String expected = "1.0: ( SINGLE(A) & DOUBLE(A, B) ) >> SINGLE(B) ^2";
 
         try {
-            PSLTest.assertRule(dataStore, input, expected);
+            PSLTest.assertRule(input, expected);
             fail("ModelLoader.LoadRule() with more than one rule did not throw an exception.");
         } catch (IllegalArgumentException ex) {
             // Exception expected.
@@ -518,7 +490,7 @@ public class ModelLoaderTest {
 
         for (int i = 0; i < input.length; i++) {
             try {
-                PSLTest.assertRule(dataStore, input[i], expected[i]);
+                PSLTest.assertRule(input[i], expected[i]);
                 fail(String.format("Rule: %d - Exception not thrown when float used without leading digit.", i));
             } catch (Exception ex) {
                 // Exception expected.
@@ -556,7 +528,7 @@ public class ModelLoaderTest {
 
         for (int i = 0; i < input.length; i++) {
             try {
-                PSLTest.assertRule(dataStore, input[i], expected[i]);
+                PSLTest.assertRule(input[i], expected[i]);
                 fail(String.format("Rule: %d - Exception not thrown on general syntax error.", i));
             } catch (Exception ex) {
                 // Exception expected.
@@ -586,7 +558,7 @@ public class ModelLoaderTest {
 
         for (int i = 0; i < input.length; i++) {
             try {
-                PSLTest.assertRule(dataStore, input[i], expected[i]);
+                PSLTest.assertRule(input[i], expected[i]);
                 fail(String.format("Rule: %d - Exception not thrown on bad square error.", i));
             } catch (Exception ex) {
                 // Exception expected.
@@ -618,7 +590,7 @@ public class ModelLoaderTest {
         };
 
         for (int i = 0; i < inputs.length; i++) {
-            RulePartial partial = ModelLoader.loadRulePartial(dataStore, inputs[i]);
+            RulePartial partial = ModelLoader.loadRulePartial(inputs[i]);
             assertEquals(
                     String.format("Expected RulePartial #%d to be a rule, but was not.", i),
                     true,
@@ -657,7 +629,7 @@ public class ModelLoaderTest {
         };
 
         for (int i = 0; i < inputs.length; i++) {
-            RulePartial partial = ModelLoader.loadRulePartial(dataStore, inputs[i]);
+            RulePartial partial = ModelLoader.loadRulePartial(inputs[i]);
             assertEquals(
                     String.format("Expected RulePartial #%d to not a rule, but was.", i),
                     false,
@@ -668,7 +640,7 @@ public class ModelLoaderTest {
             PSLTest.assertStringEquals(unweightedExpected[i], unweightedRule.toString(), true,
                     String.format("Unweighted rule %d string mismatch", i));
 
-            Rule weightedRule = partial.toRule(5.0, true);
+            Rule weightedRule = partial.toRule(5.0f, true);
             PSLTest.assertStringEquals(weightedExpected[i], weightedRule.toString(), true,
                     String.format("Weighted rule %d string mismatch", i));
         }
@@ -685,7 +657,7 @@ public class ModelLoaderTest {
             "1.0: ( SINGLE(C) & SINGLE(D) & (C % D) ) >> DOUBLE(C, D) ^2"
         };
 
-        PSLTest.assertModel(dataStore, input, expected);
+        PSLTest.assertModel(input, expected);
     }
 
     @Test
@@ -718,22 +690,22 @@ public class ModelLoaderTest {
             "7.0 * SINGLE(A) + -34.0 * SINGLE(B) = 0.0 .",
             "0.0 * SINGLE(A) = 99.0 .",
             "2.0 * SINGLE(A) = 99.0 .",
-            "2.0 * SINGLE(A) = 99.0 .",
-            "0.0 * SINGLE(A) = 99.0 .",
-            "7.0 * SINGLE(A) = 99.0 .",
+            // "2.0 * SINGLE(A) = 99.0 .",  // Duplicate rule ignored.
+            // "0.0 * SINGLE(A) = 99.0 .",  // Duplicate rule ignored.
+            // "7.0 * SINGLE(A) = 99.0 .",  // Duplicate rule ignored.
             "9.0 * SINGLE(A) = 99.0 .",
             "(1.0 + (2.0 * |A|)) * SINGLE(+A) = 99.0 .",
             "7.0 * SINGLE(+A) = 99.0 .",
             "9.0 * SINGLE(+A) = 99.0 .",
             "11.0 * SINGLE(A) = 99.0 .",
-            "11.0 * SINGLE(A) = 99.0 .",
+            // "11.0 * SINGLE(A) = 99.0 .",  // Duplicate rule ignored.
             "21.0 * SINGLE(A) = 99.0 .",
             "-4.5 * SINGLE(A) = 99.0 .",
-            "-4.5 * SINGLE(A) = 99.0 .",
+            // "-4.5 * SINGLE(A) = 99.0 .",  // Duplicate rule ignored.
             "1.0 * SINGLE(A) = 99.0 ."
         };
 
-        PSLTest.assertModel(dataStore, input, expected);
+        PSLTest.assertModel(input, expected);
     }
 
     @Test
@@ -760,7 +732,7 @@ public class ModelLoaderTest {
             "1.0: ( (O != P) & SINGLE(O) & SINGLE(P) ) >> DOUBLE(O, P) ^2"
         };
 
-        PSLTest.assertModel(dataStore, input, expected);
+        PSLTest.assertModel(input, expected);
     }
 
     @Test
@@ -819,7 +791,7 @@ public class ModelLoaderTest {
             "21.0 * SINGLE(+A) + 21.0 * DOUBLE(B, C) = 1.0 .   {A : ( SINGLE(A) & SINGLE(C) )}",
         };
 
-        PSLTest.assertStringModel(dataStore, input, expected, true);
+        PSLTest.assertStringModel(input, expected, true);
     }
 
     @Test
@@ -837,7 +809,7 @@ public class ModelLoaderTest {
             "-1.0 * DOUBLE(A, B) + -1.0 * DOUBLE(B, A) = 0.0 ."
         };
 
-        PSLTest.assertModel(dataStore, input, expected);
+        PSLTest.assertModel(input, expected);
     }
 
     @Test
@@ -867,7 +839,7 @@ public class ModelLoaderTest {
             "1.0: ( SINGLE(Q) & SINGLE(R) & DOUBLE(R, Q) ) >> DOUBLE(Q, R)",
         };
 
-        PSLTest.assertModel(dataStore, input, expected);
+        PSLTest.assertModel(input, expected);
     }
 
     @Test
@@ -878,10 +850,10 @@ public class ModelLoaderTest {
             "";
         String[] expected = new String[]{
             "1.0 * SINGLE(A) + 1.0 * SINGLE(B) = 0.0 .",
-            "1.0 * SINGLE(A) + 1.0 * SINGLE(B) = 0.0 ."
+            // "1.0 * SINGLE(A) + 1.0 * SINGLE(B) = 0.0 ."  // Duplicate rule ignored.
         };
 
-        PSLTest.assertModel(dataStore, input, expected);
+        PSLTest.assertModel(input, expected);
     }
 
     @Test
@@ -896,7 +868,7 @@ public class ModelLoaderTest {
 
         for (String rule : input) {
             try {
-                PSLTest.assertRule(dataStore, rule, "");
+                PSLTest.assertRule(rule, "");
                 fail("Divide by zero did not throw exception.");
             } catch (RuntimeException ex) {
                 if (!(ex.getCause() instanceof ArithmeticException)) {
@@ -910,9 +882,9 @@ public class ModelLoaderTest {
     // QueryAtoms and SummationAtoms.
     @Test
     public void testArithmeticSummationAtom() {
-        // QueryAtom
+        // GetAtom
         String input = "1.0: Double(A, B) <= 1.0 ^2";
-        List<Rule> rules = PSLTest.getRules(dataStore, input);
+        List<Rule> rules = PSLTest.getRules(input);
 
         assertEquals(1, rules.size());
         assertEquals(WeightedArithmeticRule.class, rules.get(0).getClass());
@@ -924,7 +896,7 @@ public class ModelLoaderTest {
 
         // SummationAtom
         input = "1.0: Double(+A, B) <= 1.0 ^2";
-        rules = PSLTest.getRules(dataStore, input);
+        rules = PSLTest.getRules(input);
 
         assertEquals(1, rules.size());
         assertEquals(WeightedArithmeticRule.class, rules.get(0).getClass());
@@ -945,7 +917,7 @@ public class ModelLoaderTest {
             "-5.2: ( SINGLE(B) & DOUBLE(B, A) ) >> SINGLE(A) ^2"
         };
 
-        PSLTest.assertModel(dataStore, input, expected);
+        PSLTest.assertModel(input, expected);
     }
 
     @Test
@@ -999,6 +971,118 @@ public class ModelLoaderTest {
             "1.0: ( SINGLE('<,>.?/') & DOUBLE(Z, B) ) >> SINGLE(B) ^2",
         };
 
-        PSLTest.assertModel(dataStore, input, expected);
+        PSLTest.assertModel(input, expected);
+    }
+
+    @Test
+    public void testArithmeticGroundingOnlyPredicates() {
+        String input =
+            "Single(A) + Single(B) + (A == B) = 0.0 .\n" +
+            "Single(A) + Single(B) + (A != B) = 0.0 .\n" +
+            "Single(A) + Single(B) + (A ~= B) = 0.0 .\n" +
+            "Single(A) + Single(B) + (A - B) = 0.0 .\n" +
+            "Single(A) + Single(B) + (A % B) = 0.0 .\n" +
+            "Single(A) + Single(B) + (A ^ B) = 0.0 .\n" +
+            "";
+        String[] expected = new String[]{
+            "1.0 * SINGLE(A) + 1.0 * SINGLE(B) + 1.0 * (A == B) = 0.0 .",
+            "1.0 * SINGLE(A) + 1.0 * SINGLE(B) + 1.0 * (A != B) = 0.0 .",
+            // "1.0 * SINGLE(A) + 1.0 * SINGLE(B) + 1.0 * (A != B) = 0.0 .",  // Duplicate rule ignored.
+            // "1.0 * SINGLE(A) + 1.0 * SINGLE(B) + 1.0 * (A != B) = 0.0 .",  // Duplicate rule ignored.
+            "1.0 * SINGLE(A) + 1.0 * SINGLE(B) + 1.0 * (A % B) = 0.0 .",
+            // "1.0 * SINGLE(A) + 1.0 * SINGLE(B) + 1.0 * (A % B) = 0.0 .",  // Duplicate rule ignored.
+        };
+
+        PSLTest.assertModel(input, expected);
+    }
+
+    @Test
+    public void testNumericArithmeticTerm() {
+        String input = null;
+        String[] expected = null;
+
+        input =
+            "Single(A) - 1.0 = Single(B) .\n" +
+            "-1.0 + Single(A) = Single(B) .\n" +
+            "0.0 - 1.0 + Single(A) = Single(B) .\n" +
+            "-1.0 + 0.0 + Single(A) = Single(B) .\n" +
+
+            "Single(A) = Single(B) + 1.0 .\n" +
+            "Single(A) = Single(B) + 1.0 .\n" +
+            "Single(A) = 1.0 + Single(B) .\n" +
+            "Single(A) = 0.0 + 1.0 + Single(B) .\n" +
+            "Single(A) = 0.0 - -1.0 + Single(B) .\n" +
+            "";
+        expected = new String[]{
+            "1.0 * SINGLE(A) + -1.0 * SINGLE(B) = 1.0 .",
+        };
+
+        PSLTest.assertModel(input, expected);
+
+        input =
+            "Single(A) + 1.0 = Single(B) .\n" +
+            "1.0 + Single(A) = Single(B) .\n" +
+            "0.0 + 1.0 + Single(A) = Single(B) .\n" +
+            "1.0 + 0.0 + Single(A) = Single(B) .\n" +
+
+            "Single(A) = Single(B) - 1.0 .\n" +
+            "Single(A) = Single(B) - 1.0 .\n" +
+            "Single(A) = -1.0 + Single(B) .\n" +
+            "Single(A) = 0.0 - 1.0 + Single(B) .\n" +
+            "Single(A) = 0.0 + -1.0 + Single(B) .\n" +
+            "";
+        expected = new String[]{
+            "1.0 * SINGLE(A) + -1.0 * SINGLE(B) = -1.0 .",
+        };
+
+        PSLTest.assertModel(input, expected);
+
+        input =
+            " 2.0 + Single(A) =  3.0 + Single(B) .\n" +
+            " 2.0 + Single(A) = Single(B) + 3.0 .\n" +
+            "Single(A) + 2.0 =  3.0 + Single(B) .\n" +
+            "Single(A) + 2.0 = Single(B) + 3.0 .\n" +
+            "";
+        expected = new String[]{
+            "1.0 * SINGLE(A) + -1.0 * SINGLE(B) = 1.0 .",
+        };
+
+        PSLTest.assertModel(input, expected);
+
+        input =
+            "-2.0 + Single(A) =  3.0 + Single(B) .\n" +
+            "-2.0 + Single(A) = Single(B) + 3.0 .\n" +
+            "Single(A) - 2.0 =  3.0 + Single(B) .\n" +
+            "Single(A) - 2.0 = Single(B) + 3.0 .\n" +
+            "";
+        expected = new String[]{
+            "1.0 * SINGLE(A) + -1.0 * SINGLE(B) = 5.0 .",
+        };
+
+        PSLTest.assertModel(input, expected);
+
+        input =
+            " 2.0 + Single(A) = -3.0 + Single(B) .\n" +
+            " 2.0 + Single(A) = Single(B) - 3.0 .\n" +
+            "Single(A) + 2.0 = -3.0 + Single(B) .\n" +
+            "Single(A) + 2.0 = Single(B) - 3.0 .\n" +
+            "";
+        expected = new String[]{
+            "1.0 * SINGLE(A) + -1.0 * SINGLE(B) = -5.0 .",
+        };
+
+        PSLTest.assertModel(input, expected);
+
+        input =
+            "-2.0 + Single(A) = -3.0 + Single(B) .\n" +
+            "-2.0 + Single(A) = Single(B) - 3.0 .\n" +
+            "Single(A) - 2.0 = -3.0 + Single(B) .\n" +
+            "Single(A) - 2.0 = Single(B) - 3.0 .\n" +
+            "";
+        expected = new String[]{
+            "1.0 * SINGLE(A) + -1.0 * SINGLE(B) = -1.0 .",
+        };
+
+        PSLTest.assertModel(input, expected);
     }
 }

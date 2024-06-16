@@ -1,7 +1,7 @@
 /*
  * This file is part of the PSL software.
  * Copyright 2011-2015 University of Maryland
- * Copyright 2013-2019 The Regents of the University of California
+ * Copyright 2013-2022 The Regents of the University of California
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -17,28 +17,29 @@
  */
 package org.linqs.psl.model.atom;
 
-import org.linqs.psl.database.Database;
 import org.linqs.psl.model.predicate.Predicate;
-import org.linqs.psl.model.rule.GroundRule;
-import org.linqs.psl.model.rule.Rule;
 import org.linqs.psl.model.term.Constant;
 import org.linqs.psl.model.term.VariableTypeMap;
 import org.linqs.psl.reasoner.function.FunctionTerm;
-
-import java.util.Arrays;
-import java.util.Collection;
-import java.util.Set;
+import org.linqs.psl.reasoner.term.ReasonerLocalVariable;
+import org.linqs.psl.util.StringUtils;
 
 /**
  * An Atom with only {@link Constant GroundTerms} for arguments.
  *
  * A GroundAtom has a truth value.
  */
-public abstract class GroundAtom extends Atom implements Comparable<GroundAtom>, FunctionTerm {
+public abstract class GroundAtom extends Atom implements Comparable<GroundAtom>, FunctionTerm, ReasonerLocalVariable {
     protected float value;
 
     protected GroundAtom(Predicate predicate, Constant[] args, float value) {
         super(predicate, args);
+
+        if (value < 0.0f || value > 1.0f) {
+            throw new IllegalArgumentException(String.format(
+                    "Attempt to instantiate an atom with a truth value outside of [0, 1]. Value: %f, Predicate: %s, Arguments: [%s].",
+                    value, predicate, StringUtils.join(", ", args)));
+        }
         this.value = value;
     }
 
@@ -75,24 +76,23 @@ public abstract class GroundAtom extends Atom implements Comparable<GroundAtom>,
      */
     @Override
     public int compareTo(GroundAtom other) {
-        if (this.getValue() < other.getValue()) {
-            return 1;
-        } else if (this.getValue() > other.getValue()) {
-            return -1;
-        } else {
-            int val = this.predicate.getName().compareTo(other.predicate.getName());
+        int comparisonResult = Double.compare(other.value, this.value);
+        if (comparisonResult != 0) {
+            return comparisonResult;
+        }
+
+        int val = this.predicate.getName().compareTo(other.predicate.getName());
+        if (val != 0) {
+            return val;
+        }
+
+        for (int i = 0; i < this.arguments.length; i++) {
+            val = this.arguments[i].compareTo(other.arguments[i]);
             if (val != 0) {
                 return val;
             }
-
-            for (int i = 0; i < this.arguments.length; i++) {
-                val = this.arguments[i].compareTo(other.arguments[i]);
-                if (val != 0) {
-                    return val;
-                }
-            }
-
-            return 0;
         }
+
+        return 0;
     }
 }

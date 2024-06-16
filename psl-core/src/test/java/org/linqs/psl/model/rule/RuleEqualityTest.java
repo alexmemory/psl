@@ -1,7 +1,7 @@
 /*
  * This file is part of the PSL software.
  * Copyright 2011-2015 University of Maryland
- * Copyright 2013-2019 The Regents of the University of California
+ * Copyright 2013-2022 The Regents of the University of California
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -17,13 +17,6 @@
  */
 package org.linqs.psl.model.rule;
 
-import static org.junit.Assert.assertEquals;
-import static org.junit.Assert.assertNotEquals;
-import static org.junit.Assert.fail;
-
-import org.junit.After;
-import org.junit.Before;
-import org.junit.Test;
 import org.linqs.psl.database.DataStore;
 import org.linqs.psl.database.rdbms.RDBMSDataStore;
 import org.linqs.psl.database.rdbms.driver.H2DatabaseDriver;
@@ -47,11 +40,16 @@ import org.linqs.psl.model.term.ConstantType;
 import org.linqs.psl.model.term.UniqueStringID;
 import org.linqs.psl.model.term.Variable;
 import org.linqs.psl.reasoner.function.FunctionComparator;
+import org.linqs.psl.test.PSLBaseTest;
+
+import org.junit.After;
+import org.junit.Before;
+import org.junit.Test;
 
 import java.util.Arrays;
 import java.util.List;
 
-public class RuleEqualityTest {
+public class RuleEqualityTest extends PSLBaseTest {
     private DataStore dataStore;
 
     private StandardPredicate singlePredicate;
@@ -99,53 +97,49 @@ public class RuleEqualityTest {
     @Test
     public void testLogicalBase() {
         assertEquals(new UnweightedLogicalRule(logicalBaseRule), new UnweightedLogicalRule(logicalBaseRule));
-        assertEquals(new WeightedLogicalRule(logicalBaseRule, 1.0, true), new WeightedLogicalRule(logicalBaseRule, 1.0, true));
-        assertEquals(new WeightedLogicalRule(logicalBaseRule, 1.0, false), new WeightedLogicalRule(logicalBaseRule, 1.0, false));
+        assertEquals(new WeightedLogicalRule(logicalBaseRule, 1.0f, true), new WeightedLogicalRule(logicalBaseRule, 1.0f, true));
+        assertEquals(new WeightedLogicalRule(logicalBaseRule, 1.0f, false), new WeightedLogicalRule(logicalBaseRule, 1.0f, false));
 
-        assertNotEquals(new WeightedLogicalRule(logicalBaseRule, 1.0, true), new WeightedLogicalRule(logicalBaseRule, 1.0, false));
-        assertNotEquals(new WeightedLogicalRule(logicalBaseRule, 1.0, true), new WeightedLogicalRule(logicalBaseRule, 0.0, true));
-        assertNotEquals(new WeightedLogicalRule(logicalBaseRule, 1.0, true), new WeightedLogicalRule(logicalBaseRule, 0.0, false));
-        assertNotEquals(new WeightedLogicalRule(logicalBaseRule, 1.0, false), new WeightedLogicalRule(logicalBaseRule, 1.0, true));
-        assertNotEquals(new WeightedLogicalRule(logicalBaseRule, 0.0, true), new WeightedLogicalRule(logicalBaseRule, 1.0, true));
-        assertNotEquals(new WeightedLogicalRule(logicalBaseRule, 0.0, false), new WeightedLogicalRule(logicalBaseRule, 1.0, true));
+        assertNotEquals(new WeightedLogicalRule(logicalBaseRule, 1.0f, true), new WeightedLogicalRule(logicalBaseRule, 1.0f, false));
+        assertNotEquals(new WeightedLogicalRule(logicalBaseRule, 1.0f, true), new WeightedLogicalRule(logicalBaseRule, 0.0f, false));
+        assertNotEquals(new WeightedLogicalRule(logicalBaseRule, 1.0f, false), new WeightedLogicalRule(logicalBaseRule, 1.0f, true));
+        assertNotEquals(new WeightedLogicalRule(logicalBaseRule, 0.0f, false), new WeightedLogicalRule(logicalBaseRule, 1.0f, true));
 
-        assertNotEquals(new WeightedLogicalRule(logicalBaseRule, 5.0, true), new WeightedLogicalRule(logicalBaseRule, 1.0, false));
-        assertNotEquals(new WeightedLogicalRule(logicalBaseRule, 5.0, true), new WeightedLogicalRule(logicalBaseRule, 5.0, false));
+        assertNotEquals(new WeightedLogicalRule(logicalBaseRule, 5.0f, true), new WeightedLogicalRule(logicalBaseRule, 1.0f, false));
+        assertNotEquals(new WeightedLogicalRule(logicalBaseRule, 5.0f, true), new WeightedLogicalRule(logicalBaseRule, 5.0f, false));
 
-        assertNotEquals(new UnweightedLogicalRule(logicalBaseRule), new WeightedLogicalRule(logicalBaseRule, 1.0, true));
-        assertNotEquals(new UnweightedLogicalRule(logicalBaseRule), new WeightedLogicalRule(logicalBaseRule, 1.0, false));
-        assertNotEquals(new UnweightedLogicalRule(logicalBaseRule), new WeightedLogicalRule(logicalBaseRule, 0.0, true));
-        assertNotEquals(new UnweightedLogicalRule(logicalBaseRule), new WeightedLogicalRule(logicalBaseRule, 0.0, false));
-        assertNotEquals(new WeightedLogicalRule(logicalBaseRule, 1.0, true), new UnweightedLogicalRule(logicalBaseRule));
-        assertNotEquals(new WeightedLogicalRule(logicalBaseRule, 1.0, false), new UnweightedLogicalRule(logicalBaseRule));
-        assertNotEquals(new WeightedLogicalRule(logicalBaseRule, 0.0, false), new UnweightedLogicalRule(logicalBaseRule));
-        assertNotEquals(new WeightedLogicalRule(logicalBaseRule, 0.0, false), new UnweightedLogicalRule(logicalBaseRule));
+        assertNotEquals(new UnweightedLogicalRule(logicalBaseRule), new WeightedLogicalRule(logicalBaseRule, 1.0f, true));
+        assertNotEquals(new UnweightedLogicalRule(logicalBaseRule), new WeightedLogicalRule(logicalBaseRule, 1.0f, false));
+        assertNotEquals(new UnweightedLogicalRule(logicalBaseRule), new WeightedLogicalRule(logicalBaseRule, 0.0f, true));
+        assertNotEquals(new UnweightedLogicalRule(logicalBaseRule), new WeightedLogicalRule(logicalBaseRule, 0.0f, false));
+        assertNotEquals(new WeightedLogicalRule(logicalBaseRule, 1.0f, true), new UnweightedLogicalRule(logicalBaseRule));
+        assertNotEquals(new WeightedLogicalRule(logicalBaseRule, 1.0f, false), new UnweightedLogicalRule(logicalBaseRule));
+        assertNotEquals(new WeightedLogicalRule(logicalBaseRule, 0.0f, false), new UnweightedLogicalRule(logicalBaseRule));
+        assertNotEquals(new WeightedLogicalRule(logicalBaseRule, 0.0f, false), new UnweightedLogicalRule(logicalBaseRule));
     }
 
     @Test
     public void testArithmeticBase() {
         assertEquals(new UnweightedArithmeticRule(arithmeticBaseRule), new UnweightedArithmeticRule(arithmeticBaseRule));
-        assertEquals(new WeightedArithmeticRule(arithmeticBaseRule, 1.0, true), new WeightedArithmeticRule(arithmeticBaseRule, 1.0, true));
-        assertEquals(new WeightedArithmeticRule(arithmeticBaseRule, 1.0, false), new WeightedArithmeticRule(arithmeticBaseRule, 1.0, false));
+        assertEquals(new WeightedArithmeticRule(arithmeticBaseRule, 1.0f, true), new WeightedArithmeticRule(arithmeticBaseRule, 1.0f, true));
+        assertEquals(new WeightedArithmeticRule(arithmeticBaseRule, 1.0f, false), new WeightedArithmeticRule(arithmeticBaseRule, 1.0f, false));
 
-        assertNotEquals(new WeightedArithmeticRule(arithmeticBaseRule, 1.0, true), new WeightedArithmeticRule(arithmeticBaseRule, 1.0, false));
-        assertNotEquals(new WeightedArithmeticRule(arithmeticBaseRule, 1.0, true), new WeightedArithmeticRule(arithmeticBaseRule, 0.0, true));
-        assertNotEquals(new WeightedArithmeticRule(arithmeticBaseRule, 1.0, true), new WeightedArithmeticRule(arithmeticBaseRule, 0.0, false));
-        assertNotEquals(new WeightedArithmeticRule(arithmeticBaseRule, 1.0, false), new WeightedArithmeticRule(arithmeticBaseRule, 1.0, true));
-        assertNotEquals(new WeightedArithmeticRule(arithmeticBaseRule, 0.0, true), new WeightedArithmeticRule(arithmeticBaseRule, 1.0, true));
-        assertNotEquals(new WeightedArithmeticRule(arithmeticBaseRule, 0.0, false), new WeightedArithmeticRule(arithmeticBaseRule, 1.0, true));
+        assertNotEquals(new WeightedArithmeticRule(arithmeticBaseRule, 1.0f, true), new WeightedArithmeticRule(arithmeticBaseRule, 1.0f, false));
+        assertNotEquals(new WeightedArithmeticRule(arithmeticBaseRule, 1.0f, true), new WeightedArithmeticRule(arithmeticBaseRule, 0.0f, false));
+        assertNotEquals(new WeightedArithmeticRule(arithmeticBaseRule, 1.0f, false), new WeightedArithmeticRule(arithmeticBaseRule, 1.0f, true));
+        assertNotEquals(new WeightedArithmeticRule(arithmeticBaseRule, 0.0f, false), new WeightedArithmeticRule(arithmeticBaseRule, 1.0f, true));
 
-        assertNotEquals(new WeightedArithmeticRule(arithmeticBaseRule, 5.0, true), new WeightedArithmeticRule(arithmeticBaseRule, 1.0, false));
-        assertNotEquals(new WeightedArithmeticRule(arithmeticBaseRule, 5.0, true), new WeightedArithmeticRule(arithmeticBaseRule, 5.0, false));
+        assertNotEquals(new WeightedArithmeticRule(arithmeticBaseRule, 5.0f, true), new WeightedArithmeticRule(arithmeticBaseRule, 1.0f, false));
+        assertNotEquals(new WeightedArithmeticRule(arithmeticBaseRule, 5.0f, true), new WeightedArithmeticRule(arithmeticBaseRule, 5.0f, false));
 
-        assertNotEquals(new UnweightedArithmeticRule(arithmeticBaseRule), new WeightedArithmeticRule(arithmeticBaseRule, 1.0, true));
-        assertNotEquals(new UnweightedArithmeticRule(arithmeticBaseRule), new WeightedArithmeticRule(arithmeticBaseRule, 1.0, false));
-        assertNotEquals(new UnweightedArithmeticRule(arithmeticBaseRule), new WeightedArithmeticRule(arithmeticBaseRule, 0.0, true));
-        assertNotEquals(new UnweightedArithmeticRule(arithmeticBaseRule), new WeightedArithmeticRule(arithmeticBaseRule, 0.0, false));
-        assertNotEquals(new WeightedArithmeticRule(arithmeticBaseRule, 1.0, true), new UnweightedArithmeticRule(arithmeticBaseRule));
-        assertNotEquals(new WeightedArithmeticRule(arithmeticBaseRule, 1.0, false), new UnweightedArithmeticRule(arithmeticBaseRule));
-        assertNotEquals(new WeightedArithmeticRule(arithmeticBaseRule, 0.0, false), new UnweightedArithmeticRule(arithmeticBaseRule));
-        assertNotEquals(new WeightedArithmeticRule(arithmeticBaseRule, 0.0, false), new UnweightedArithmeticRule(arithmeticBaseRule));
+        assertNotEquals(new UnweightedArithmeticRule(arithmeticBaseRule), new WeightedArithmeticRule(arithmeticBaseRule, 1.0f, true));
+        assertNotEquals(new UnweightedArithmeticRule(arithmeticBaseRule), new WeightedArithmeticRule(arithmeticBaseRule, 1.0f, false));
+        assertNotEquals(new UnweightedArithmeticRule(arithmeticBaseRule), new WeightedArithmeticRule(arithmeticBaseRule, 0.0f, true));
+        assertNotEquals(new UnweightedArithmeticRule(arithmeticBaseRule), new WeightedArithmeticRule(arithmeticBaseRule, 0.0f, false));
+        assertNotEquals(new WeightedArithmeticRule(arithmeticBaseRule, 1.0f, true), new UnweightedArithmeticRule(arithmeticBaseRule));
+        assertNotEquals(new WeightedArithmeticRule(arithmeticBaseRule, 1.0f, false), new UnweightedArithmeticRule(arithmeticBaseRule));
+        assertNotEquals(new WeightedArithmeticRule(arithmeticBaseRule, 0.0f, false), new UnweightedArithmeticRule(arithmeticBaseRule));
+        assertNotEquals(new WeightedArithmeticRule(arithmeticBaseRule, 0.0f, false), new UnweightedArithmeticRule(arithmeticBaseRule));
     }
 
     @After

@@ -1,7 +1,7 @@
 /*
  * This file is part of the PSL software.
  * Copyright 2011-2015 University of Maryland
- * Copyright 2013-2019 The Regents of the University of California
+ * Copyright 2013-2022 The Regents of the University of California
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -77,14 +77,14 @@ public class RDBMSResultList implements ResultList {
     }
 
     @Override
-    public int size() {
+    public long size() {
         return results.size();
     }
 
     @Override
     public String toString() {
         StringBuilder s = new StringBuilder();
-        s.append("Size: ").append(size()).append("\n");
+        s.append("Size: ").append(size()).append(System.lineSeparator());
         int len = getArity();
         for (Constant[] res : results) {
             for (int i = 0; i < len; i++) {
@@ -93,7 +93,7 @@ public class RDBMSResultList implements ResultList {
                 }
                 s.append(res[i]);
             }
-            s.append("\n");
+            s.append(System.lineSeparator());
         }
         s.append("-------");
 

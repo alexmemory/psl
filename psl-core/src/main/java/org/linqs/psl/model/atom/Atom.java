@@ -1,7 +1,7 @@
 /*
  * This file is part of the PSL software.
  * Copyright 2011-2015 University of Maryland
- * Copyright 2013-2019 The Regents of the University of California
+ * Copyright 2013-2022 The Regents of the University of California
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -51,12 +51,6 @@ public abstract class Atom implements Formula, SummationAtomOrAtom {
     protected int hashcode;
 
     /**
-     * The hashcode of the original argument array.
-     * Since Terms are immutable, we can use this to shortcut deep equality checks.
-     */
-    private int originArgumentsHashcode;
-
-    /**
      * Type mismatches will throw an exception unless
      * the types are trivially convertable like UniqueIntID and IntegerAttribute.
      */
@@ -78,9 +72,6 @@ public abstract class Atom implements Formula, SummationAtomOrAtom {
         }
 
         hashcode = HashCode.build(HashCode.build(predicate), arguments);
-        // Note that we are using Arrays.hashCode() instead of args.hashCode().
-        // This will take the shallow hash of the args.
-        originArgumentsHashcode = Arrays.hashCode(args);
     }
 
     /**
@@ -133,6 +124,14 @@ public abstract class Atom implements Formula, SummationAtomOrAtom {
     public Set<Atom> getAtoms(Set<Atom> atoms) {
         atoms.add(this);
         return atoms;
+    }
+
+    /**
+     * Whether this atom is managed by an AtomManager.
+     * Only in very rare cases do we have unmanaged atoms.
+     */
+    public boolean isManaged() {
+        return true;
     }
 
     /**
@@ -281,15 +280,15 @@ public abstract class Atom implements Formula, SummationAtomOrAtom {
         StringBuilder s = new StringBuilder();
         if (predicate instanceof GroundingOnlyPredicate)  {
             s.append("(");
-            if (predicate == GroundingOnlyPredicate.NotEqual) {
+            if (predicate.equals(GroundingOnlyPredicate.NotEqual)) {
                 s.append(arguments[0]);
                 s.append(" != ");
                 s.append(arguments[1]);
-            } else if (predicate == GroundingOnlyPredicate.Equal) {
+            } else if (predicate.equals(GroundingOnlyPredicate.Equal)) {
                 s.append(arguments[0]);
                 s.append(" == ");
                 s.append(arguments[1]);
-            } else if (predicate == GroundingOnlyPredicate.NonSymmetric) {
+            } else if (predicate.equals(GroundingOnlyPredicate.NonSymmetric)) {
                 s.append(arguments[0]);
                 s.append(" % ");
                 s.append(arguments[1]);
@@ -331,7 +330,7 @@ public abstract class Atom implements Formula, SummationAtomOrAtom {
         // First check the hashcode to reduce the time we have to do a deepEquals() on the arguments.
         // Note that the hashcode is not perfect, but provides a quick insurance on inequality.
         return hashCode() == other.hashCode() && predicate.equals(other.predicate) &&
-                (this.originArgumentsHashcode == other.originArgumentsHashcode || Arrays.deepEquals(arguments, other.arguments));
+                Arrays.deepEquals(arguments, other.arguments);
     }
 
     @Override

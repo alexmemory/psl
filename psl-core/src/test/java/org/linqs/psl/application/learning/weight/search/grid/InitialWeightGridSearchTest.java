@@ -1,7 +1,7 @@
 /*
  * This file is part of the PSL software.
  * Copyright 2011-2015 University of Maryland
- * Copyright 2013-2019 The Regents of the University of California
+ * Copyright 2013-2022 The Regents of the University of California
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -21,8 +21,7 @@ import org.linqs.psl.application.learning.weight.VotedPerceptron;
 import org.linqs.psl.application.learning.weight.WeightLearningApplication;
 import org.linqs.psl.application.learning.weight.WeightLearningTest;
 import org.linqs.psl.application.learning.weight.maxlikelihood.MaxLikelihoodMPE;
-import org.linqs.psl.reasoner.admm.ADMMReasoner;
-import org.linqs.psl.config.Config;
+import org.linqs.psl.config.Options;
 
 public class InitialWeightGridSearchTest extends WeightLearningTest {
     public InitialWeightGridSearchTest() {
@@ -34,11 +33,11 @@ public class InitialWeightGridSearchTest extends WeightLearningTest {
     @Override
     protected WeightLearningApplication getWLA() {
         // Narrow the search space for tests.
-        Config.setProperty(GridSearch.POSSIBLE_WEIGHTS_KEY, "1:10:100");
+        Options.WLA_GS_POSSIBLE_WEIGHTS.set("1:10:100");
 
         // Turn down the number of iterations of both ADMM and VotedPerceptron.
-        Config.setProperty(VotedPerceptron.NUM_STEPS_KEY, 5);
-        Config.setProperty(ADMMReasoner.MAX_ITER_KEY, 25);
+        Options.WLA_VP_NUM_STEPS.set(5);
+        Options.ADMM_MAX_ITER.set(Integer.valueOf(25));
 
         // Use the classic MLE.
         WeightLearningApplication internalWLA = new MaxLikelihoodMPE(info.model.getRules(), weightLearningTrainDB, weightLearningTruthDB);

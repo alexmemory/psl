@@ -1,7 +1,7 @@
 /*
  * This file is part of the PSL software.
  * Copyright 2011-2015 University of Maryland
- * Copyright 2013-2019 The Regents of the University of California
+ * Copyright 2013-2022 The Regents of the University of California
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -60,12 +60,18 @@ public abstract class AtomManager {
      *
      * This method must call {@link Database#getAtom(Predicate, Constant...)}
      * to actually retrieve the GroundAtom.
+     * Atom managers reserve the right to reject any atom by returning null here.
      *
      * @param predicate the Predicate of the Atom
      * @param arguments the GroundTerms of the Atom
+     * @param trivialValue the database may use this value to skipinstantiating an observed atom.
      * @return the Atom
      */
-    public abstract GroundAtom getAtom(Predicate predicate, Constant... arguments);
+    public abstract GroundAtom getAtom(double trivialValue, Predicate predicate, Constant... arguments);
+
+    public GroundAtom getAtom(Predicate predicate, Constant... arguments) {
+        return getAtom(-1.0, predicate, arguments);
+    }
 
     /**
      * Calls {@link Database#executeQuery(DatabaseQuery)} on the
@@ -116,6 +122,13 @@ public abstract class AtomManager {
      */
     public int getCachedRVACount() {
         return db.getCachedRVACount();
+    }
+
+    /**
+     * Get the number of ObservedAtoms cached by the database.
+     */
+    public int getCachedObsCount() {
+        return db.getCachedObsCount();
     }
 
     /**

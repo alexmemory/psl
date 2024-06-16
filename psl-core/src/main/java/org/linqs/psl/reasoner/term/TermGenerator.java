@@ -1,7 +1,7 @@
 /*
  * This file is part of the PSL software.
  * Copyright 2011-2015 University of Maryland
- * Copyright 2013-2019 The Regents of the University of California
+ * Copyright 2013-2022 The Regents of the University of California
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -24,5 +24,5 @@ public interface TermGenerator<T extends ReasonerTerm, V extends ReasonerLocalVa
      * Use the ground rules in |ruleStore| to generate optimization terms and populate |termStore|.
      * @return the number of terms added to the term store.
      */
-    public int generateTerms(GroundRuleStore ruleStore, TermStore<T, V> termStore);
+    public long generateTerms(GroundRuleStore ruleStore, TermStore<T, V> termStore);
 }

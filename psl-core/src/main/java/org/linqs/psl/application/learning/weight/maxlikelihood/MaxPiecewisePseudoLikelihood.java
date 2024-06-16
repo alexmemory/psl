@@ -1,7 +1,7 @@
 /*
  * This file is part of the PSL software.
  * Copyright 2011-2015 University of Maryland
- * Copyright 2013-2019 The Regents of the University of California
+ * Copyright 2013-2022 The Regents of the University of California
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -17,7 +17,7 @@
  */
 package org.linqs.psl.application.learning.weight.maxlikelihood;
 
-import org.linqs.psl.config.Config;
+import org.linqs.psl.config.Options;
 import org.linqs.psl.database.Database;
 import org.linqs.psl.model.Model;
 import org.linqs.psl.model.atom.RandomVariableAtom;
@@ -41,18 +41,6 @@ import java.util.Random;
  * the voted perceptron algorithm.
  */
 public class MaxPiecewisePseudoLikelihood extends VotedPerceptron {
-    /**
-     * Prefix of property keys used by this class.
-     */
-    public static final String CONFIG_PREFIX = "maxpiecewisepseudolikelihood";
-
-    /**
-     * Key for positive integer property.
-     * MaxPiecewisePseudoLikelihood will sample this many values to approximate the expectations.
-     */
-    public static final String NUM_SAMPLES_KEY = CONFIG_PREFIX + ".numsamples";
-    public static final int NUM_SAMPLES_DEFAULT = 100;
-
     private final int maxNumSamples;
     private int numSamples;
     private List<Map<RandomVariableAtom, List<WeightedGroundRule>>> ruleRandomVariableMap;
@@ -65,13 +53,10 @@ public class MaxPiecewisePseudoLikelihood extends VotedPerceptron {
     }
 
     public MaxPiecewisePseudoLikelihood(List<Rule> rules, Database rvDB, Database observedDB) {
-        super(rules, rvDB, observedDB, false);
+        super(rules, rvDB, observedDB);
 
-        maxNumSamples = Config.getInt(NUM_SAMPLES_KEY, NUM_SAMPLES_DEFAULT);
+        maxNumSamples = Options.WLA_MPPLE_NUM_SAMPLES.getInt();
         numSamples = maxNumSamples;
-        if (numSamples <= 0) {
-            throw new IllegalArgumentException("Number of samples must be positive.");
-        }
 
         rands = new Random[Parallel.getNumThreads()];
         for (int i = 0; i < Parallel.getNumThreads(); i++) {
@@ -97,7 +82,7 @@ public class MaxPiecewisePseudoLikelihood extends VotedPerceptron {
 
         for (Rule rule : mutableRules) {
             Map<RandomVariableAtom, List<WeightedGroundRule>> groundRuleMap = new HashMap<RandomVariableAtom, List<WeightedGroundRule>>();
-            for (GroundRule groundRule : groundRuleStore.getGroundRules(rule)) {
+            for (GroundRule groundRule : inference.getGroundRuleStore().getGroundRules(rule)) {
                 for (GroundAtom atom : groundRule.getAtoms()) {
                     if (!(atom instanceof RandomVariableAtom)) {
                         continue;
@@ -124,17 +109,21 @@ public class MaxPiecewisePseudoLikelihood extends VotedPerceptron {
     protected void computeExpectedIncompatibility() {
         setLabeledRandomVariables();
 
-        Parallel.count(mutableRules.size(), new Parallel.Worker<Integer>() {
+        Parallel.count(mutableRules.size(), new Parallel.Worker<Long>() {
             @Override
-            public void work(int ruleIndex, Integer ignore) {
+            public void work(long rawRuleIndex, Long ignore) {
+                // We know that Java will not allocate the data structures that this will index into if it is larger than an int.
+                int ruleIndex = (int)rawRuleIndex;
+
                 WeightedRule rule = mutableRules.get(ruleIndex);
                 Map<RandomVariableAtom, List<WeightedGroundRule>> groundRuleMap = ruleRandomVariableMap.get(ruleIndex);
 
                 double accumulateIncompatibility = 0.0;
                 double weight = rule.getWeight();
 
-                for (RandomVariableAtom atom : groundRuleMap.keySet()) {
-                    List<WeightedGroundRule> groundRules = groundRuleMap.get(atom);
+                for (Map.Entry<RandomVariableAtom, List<WeightedGroundRule>> entry : groundRuleMap.entrySet()) {
+                    RandomVariableAtom atom = entry.getKey();
+                    List<WeightedGroundRule> groundRules = entry.getValue();
 
                     double numerator = 0.0;
                     double denominator = 1e-6;
@@ -164,14 +153,18 @@ public class MaxPiecewisePseudoLikelihood extends VotedPerceptron {
         setLabeledRandomVariables();
 
         final double[] losses = new double[mutableRules.size()];
-        Parallel.count(mutableRules.size(), new Parallel.Worker<Integer>() {
-            public void work(int ruleIndex, Integer ignore) {
+        Parallel.count(mutableRules.size(), new Parallel.Worker<Long>() {
+            public void work(long rawRuleIndex, Long ignore) {
+                // We know that Java will not allocate the data structures that this will index into if it is larger than an int.
+                int ruleIndex = (int)rawRuleIndex;
+
                 Map<RandomVariableAtom, List<WeightedGroundRule>> groundRuleMap = ruleRandomVariableMap.get(ruleIndex);
                 WeightedRule rule = mutableRules.get(ruleIndex);
                 double weight = rule.getWeight();
 
-                for (RandomVariableAtom atom : groundRuleMap.keySet()) {
-                    List<WeightedGroundRule> groundRules = groundRuleMap.get(atom);
+                for (Map.Entry<RandomVariableAtom, List<WeightedGroundRule>> entry : groundRuleMap.entrySet()) {
+                    RandomVariableAtom atom = entry.getKey();
+                    List<WeightedGroundRule> groundRules = entry.getValue();
 
                     double expInc = 0;
                     for (int sampleIndex = 0; sampleIndex < numSamples; sampleIndex++) {
@@ -217,8 +210,8 @@ public class MaxPiecewisePseudoLikelihood extends VotedPerceptron {
             double weight = ((WeightedRule) rule).getWeight();
             double obsInc = 0;
 
-            for (RandomVariableAtom atom : groundRuleMap.keySet()) {
-                for (WeightedGroundRule groundRule : groundRuleMap.get(atom)) {
+            for (List<WeightedGroundRule> groundRules : groundRuleMap.values()) {
+                for (WeightedGroundRule groundRule : groundRules) {
                     obsInc += groundRule.getIncompatibility();
                 }
             }

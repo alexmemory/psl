@@ -1,7 +1,7 @@
 '''
 This file is part of the PSL software.
 Copyright 2011-2015 University of Maryland
-Copyright 2013-2019 The Regents of the University of California
+Copyright 2013-2022 The Regents of the University of California
 
 Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
@@ -30,3 +30,8 @@ class PSLTest(unittest.TestCase):
 
     SIMPLE_ACQUAINTANCES_PSL_DIR = os.path.join(TEST_DATA_DIR, 'simple-acquaintances')
     SIMPLE_ACQUAINTANCES_DATA_DIR = os.path.join(SIMPLE_ACQUAINTANCES_PSL_DIR, 'data')
+
+    EPSILON = 1e-4
+
+    def assertClose(self, a, b):
+        self.assertTrue(abs(a - b) <= self.EPSILON)

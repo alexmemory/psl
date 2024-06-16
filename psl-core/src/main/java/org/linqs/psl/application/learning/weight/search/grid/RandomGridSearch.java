@@ -1,7 +1,7 @@
 /*
  * This file is part of the PSL software.
  * Copyright 2011-2015 University of Maryland
- * Copyright 2013-2019 The Regents of the University of California
+ * Copyright 2013-2022 The Regents of the University of California
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -17,15 +17,12 @@
  */
 package org.linqs.psl.application.learning.weight.search.grid;
 
-import org.linqs.psl.config.Config;
+import org.linqs.psl.config.Options;
 import org.linqs.psl.database.Database;
 import org.linqs.psl.model.Model;
 import org.linqs.psl.model.rule.Rule;
 import org.linqs.psl.util.RandUtils;
 import org.linqs.psl.util.StringUtils;
-
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
 
 import java.util.List;
 
@@ -36,17 +33,6 @@ import java.util.List;
  * In cases like this, it is better to just use vanilla GridSearch.
  */
 public class RandomGridSearch extends GridSearch {
-    /**
-     * Prefix of property keys used by this class.
-     */
-    public static final String CONFIG_PREFIX = "randomgridsearch";
-
-    /**
-     * The max number of locations to search.
-     */
-    public static final String MAX_LOCATIONS_KEY = CONFIG_PREFIX + ".maxlocations";
-    public static final int MAX_LOCATIONS_DEFAULT = 150;
-
     private int maxLocations;
 
     public RandomGridSearch(Model model, Database rvDB, Database observedDB) {
@@ -56,10 +42,7 @@ public class RandomGridSearch extends GridSearch {
     public RandomGridSearch(List<Rule> rules, Database rvDB, Database observedDB) {
         super(rules, rvDB, observedDB);
 
-        maxLocations = Config.getInt(MAX_LOCATIONS_KEY, MAX_LOCATIONS_DEFAULT);
-        if (maxLocations < 1) {
-            throw new IllegalArgumentException("Need at least one location for grid search.");
-        }
+        maxLocations = Options.WLA_RGS_MAX_LOCATIONS.getInt();
         numLocations = Math.min(numLocations, maxLocations);
     }
 

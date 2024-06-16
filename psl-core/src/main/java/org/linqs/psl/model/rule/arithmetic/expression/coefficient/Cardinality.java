@@ -1,7 +1,7 @@
 /*
  * This file is part of the PSL software.
  * Copyright 2011-2015 University of Maryland
- * Copyright 2013-2019 The Regents of the University of California
+ * Copyright 2013-2022 The Regents of the University of California
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -27,29 +27,42 @@ import org.linqs.psl.model.term.Constant;
  * The number of substitutions made for a {@link SummationVariable} in a grounding.
  */
 public class Cardinality extends Coefficient {
+    protected final SummationVariable variable;
 
-    protected final SummationVariable v;
-
-    public Cardinality(SummationVariable v) {
-        this.v = v;
+    public Cardinality(SummationVariable variable) {
+        this.variable = variable;
     }
 
     public SummationVariable getSummationVariable() {
-        return v;
+        return variable;
     }
 
     @Override
     public float getValue(Map<SummationVariable, Integer> subs) {
-        return subs.get(v).intValue();
+        return subs.get(variable).intValue();
     }
 
     @Override
     public String toString() {
-        return "|" + v.getVariable().toString() + "|";
+        return "|" + variable.getVariable().toString() + "|";
     }
 
     @Override
     public Coefficient simplify() {
         return this;
+    }
+
+    @Override
+    public int hashCode() {
+        return variable.hashCode();
+    }
+
+    @Override
+    public boolean equals(Object other) {
+        if (!super.equals(other)) {
+            return false;
+        }
+
+        return this.variable.equals(((Cardinality)other).variable);
     }
 }

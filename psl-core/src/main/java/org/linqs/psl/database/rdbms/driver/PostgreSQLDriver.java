@@ -1,7 +1,7 @@
 /*
  * This file is part of the PSL software.
  * Copyright 2011-2015 University of Maryland
- * Copyright 2013-2019 The Regents of the University of California
+ * Copyright 2013-2022 The Regents of the University of California
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -17,29 +17,27 @@
  */
 package org.linqs.psl.database.rdbms.driver;
 
-import org.linqs.psl.config.Config;
+import org.linqs.psl.config.Options;
 import org.linqs.psl.database.Partition;
 import org.linqs.psl.database.rdbms.PredicateInfo;
 import org.linqs.psl.database.rdbms.SelectivityHistogram;
 import org.linqs.psl.database.rdbms.TableStats;
 import org.linqs.psl.model.term.ConstantType;
-import org.linqs.psl.util.Parallel;
 import org.linqs.psl.util.ListUtils;
+import org.linqs.psl.util.Logger;
+import org.linqs.psl.util.Parallel;
 import org.linqs.psl.util.StringUtils;
 
 import com.healthmarketscience.sqlbuilder.CreateTableQuery;
-import com.zaxxer.hikari.HikariConfig;
-import com.zaxxer.hikari.HikariDataSource;
-import org.json.simple.JSONArray;
-import org.json.simple.JSONValue;
+import org.json.JSONArray;
+import org.json.JSONObject;
 import org.postgresql.PGConnection;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
 
 import java.io.FileInputStream;
 import java.io.IOException;
+import java.io.UnsupportedEncodingException;
+import java.net.URLEncoder;
 import java.sql.Connection;
-import java.sql.DriverManager;
 import java.sql.PreparedStatement;
 import java.sql.ResultSet;
 import java.sql.SQLException;
@@ -53,66 +51,41 @@ import java.util.Map;
 /**
  * PostgreSQL Connection Wrapper.
  */
-public class PostgreSQLDriver implements DatabaseDriver {
-    public static final String DEFAULT_HOST = "localhost";
-    public static final String DEFAULT_PORT = "5432";
-
-    public static final String CONFIG_PREFIX = "postgres";
-
-    public static final String KEY_STATS_PERCENTAGE = CONFIG_PREFIX + ".statspercentage";
-    public static final double DEFAULT_STATS_PERCENTAGE = 0.25;
-
+public class PostgreSQLDriver extends DatabaseDriver {
     private static final int MAX_STATS = 10000;
+    private static final String ENCODING = "UTF-8";
 
-    private static final Logger log = LoggerFactory.getLogger(PostgreSQLDriver.class);
+    private static final Logger log = Logger.getLogger(PostgreSQLDriver.class);
 
-    private final HikariDataSource dataSource;
     private final double statsPercentage;
 
     public PostgreSQLDriver(String databaseName, boolean clearDatabase) {
-        this(DEFAULT_HOST, DEFAULT_PORT, databaseName, clearDatabase);
+        this(Options.POSTGRES_HOST.getString(), Options.POSTGRES_PORT.getString(), databaseName, clearDatabase);
     }
 
     public PostgreSQLDriver(String host, String port, String databaseName, boolean clearDatabase) {
-        this(String.format("jdbc:postgresql://%s:%s/%s?loggerLevel=OFF", host, port, databaseName), databaseName, clearDatabase);
+        this(host, port,
+                Options.POSTGRES_USER.getString(), (String)Options.POSTGRES_PASSWORD.getUnlogged(),
+                databaseName, clearDatabase);
+    }
+
+    public PostgreSQLDriver(String host, String port, String user, String password, String databaseName, boolean clearDatabase) {
+        this(formatConnectionString(host, port, user, password, databaseName), databaseName, clearDatabase);
     }
 
     public PostgreSQLDriver(String connectionString, String databaseName, boolean clearDatabase) {
-        try {
-            Class.forName("org.postgresql.Driver");
-        } catch (ClassNotFoundException ex) {
-            throw new RuntimeException("Could not find postgres driver. Please check classpath.", ex);
-        }
+        super("org.postgresql.Driver", connectionString, clearDatabase);
 
-        log.debug("Connecting to PostgreSQL database: " + databaseName);
+        log.debug("Connected to PostgreSQL database: " + databaseName);
 
-        statsPercentage = Config.getDouble(KEY_STATS_PERCENTAGE, DEFAULT_STATS_PERCENTAGE);
-
-        HikariConfig config = new HikariConfig();
-        config.setJdbcUrl(connectionString);
-        config.setMaximumPoolSize(Math.max(8, Parallel.getNumThreads() * 2));
-        config.setMaxLifetime(0);
-        dataSource = new HikariDataSource(config);
-
-        if (clearDatabase) {
-            executeUpdate("DROP SCHEMA public CASCADE");
-            executeUpdate("CREATE SCHEMA public");
-            executeUpdate("GRANT ALL ON SCHEMA public TO public");
-        }
+        statsPercentage = Options.POSTGRES_STATS_PERCENTAGE.getDouble();
     }
 
     @Override
-    public void close() {
-        dataSource.close();
-    }
-
-    @Override
-    public Connection getConnection() {
-        try {
-            return dataSource.getConnection();
-        } catch (SQLException ex) {
-            throw new RuntimeException("Failed to get connection from pool.", ex);
-        }
+    protected void clearDatabase() {
+        executeUpdate("DROP SCHEMA public CASCADE");
+        executeUpdate("CREATE SCHEMA public");
+        executeUpdate("GRANT ALL ON SCHEMA public TO public");
     }
 
     @Override
@@ -145,6 +118,29 @@ public class PostgreSQLDriver implements DatabaseDriver {
             // Make sure to change the table's default partition value back (to nothing).
             dropColumnDefault(predicateInfo.tableName(), PredicateInfo.PARTITION_COLUMN_NAME);
         }
+
+        // Check for any bad values that got inserted.
+        String query = String.format("SELECT COUNT(*) FROM %s WHERE %s < 0.0 OR %s > 1.0",
+                predicateInfo.tableName(),
+                PredicateInfo.VALUE_COLUMN_NAME,
+                PredicateInfo.VALUE_COLUMN_NAME);
+
+        try (
+            Connection connection = getConnection();
+            PreparedStatement statement = connection.prepareStatement(query);
+            ResultSet result = statement.executeQuery();
+        ) {
+            result.next();
+            int badValuesCount = result.getInt(1);
+
+            if (badValuesCount != 0) {
+                throw new IllegalArgumentException(String.format(
+                        "Found %d invalid truth value(s) for predicate %s (table '%s'). Values must be between 0 and 1 inclusive.",
+                        badValuesCount, predicateInfo.predicate().getName(), predicateInfo.tableName()));
+            }
+        } catch (SQLException ex) {
+            throw new RuntimeException("Failed to check results of bulk copy on table: " + predicateInfo.tableName(), ex);
+        }
     }
 
     /**
@@ -155,8 +151,9 @@ public class PostgreSQLDriver implements DatabaseDriver {
     public void setColumnDefault(String tableName, String columnName, String defaultValue) {
         String sql = String.format("ALTER TABLE %s ALTER COLUMN %s SET DEFAULT %s", tableName, columnName, defaultValue);
 
-        try (Connection connection = getConnection()) {
-            PreparedStatement statement = connection.prepareStatement(sql);
+        try (
+                Connection connection = getConnection();
+                PreparedStatement statement = connection.prepareStatement(sql)) {
             statement.executeUpdate();
         } catch (SQLException ex) {
             throw new RuntimeException(String.format("Could not set the column default of %s for %s.%s.",
@@ -170,8 +167,9 @@ public class PostgreSQLDriver implements DatabaseDriver {
     public void dropColumnDefault(String tableName, String columnName) {
         String sql = String.format("ALTER TABLE %s ALTER COLUMN %s DROP DEFAULT", tableName, columnName);
 
-        try (Connection connection = getConnection()) {
-            PreparedStatement statement = connection.prepareStatement(sql);
+        try (
+                Connection connection = getConnection();
+                PreparedStatement statement = connection.prepareStatement(sql)) {
             statement.executeUpdate();
         } catch (SQLException ex) {
             throw new RuntimeException(String.format("Could not drop the column default for %s.%s.",
@@ -227,7 +225,7 @@ public class PostgreSQLDriver implements DatabaseDriver {
         sql.add("DO UPDATE SET");
         sql.add("    " + ListUtils.join(", ", updateValues));
 
-        return ListUtils.join("\n", sql);
+        return ListUtils.join(System.lineSeparator(), sql);
     }
 
     private void executeUpdate(String sql) {
@@ -285,7 +283,7 @@ public class PostgreSQLDriver implements DatabaseDriver {
 
         try (
             Connection connection = getConnection();
-            PreparedStatement statement = connection.prepareStatement(ListUtils.join("\n", sql));
+            PreparedStatement statement = connection.prepareStatement(ListUtils.join(System.lineSeparator(), sql));
             ResultSet result = statement.executeQuery();
         ) {
             while (result.next()) {
@@ -317,37 +315,37 @@ public class PostgreSQLDriver implements DatabaseDriver {
 
         // Try to parse the bucket histogram.
         if (rawBounds != null) {
-            JSONArray histogram = parseJSONArray(rawBounds);
+            JSONArray histogram = new JSONArray(rawBounds);
 
-            if (histogram.size() > 0) {
+            if (histogram.length() > 0) {
                 bounds = new ArrayList<Comparable>();
                 counts = new ArrayList<Integer>();
 
-                int bucketCount = rowCount / (histogram.size() - 1);
+                int bucketCount = rowCount / (histogram.length() - 1);
                 bounds.add(convertHistogramBound(histogram.get(0)));
 
-                for (int i = 1; i < histogram.size(); i++) {
+                for (int i = 1; i < histogram.length(); i++) {
                     bounds.add(convertHistogramBound(histogram.get(i)));
-                    counts.add(new Integer(bucketCount));
+                    counts.add(Integer.valueOf(bucketCount));
                 }
             }
         }
 
         // Check if the most common values were supplied.
         if (rawMostCommonVals != null) {
-            JSONArray mostCommonVals = parseJSONArray(rawMostCommonVals);
-            JSONArray mostCommonCounts = parseJSONArray(rawMostCommonCounts);
+            JSONArray mostCommonVals = new JSONArray(rawMostCommonVals);
+            JSONArray mostCommonCounts = new JSONArray(rawMostCommonCounts);
 
-            if (mostCommonVals.size() > 0) {
+            if (mostCommonVals.length() > 0) {
                 mostCommonHistogram = new HashMap<Comparable, Integer>();
 
-                for (int i = 0; i < mostCommonVals.size(); i++) {
+                for (int i = 0; i < mostCommonVals.length(); i++) {
                     // The most common values come in as proportion of the total rows in the table.
                     // So, we will normalize them to raw counts.
                     double proportion = ((Number)mostCommonCounts.get(i)).doubleValue();
                     int count = Math.max(1, (int)(proportion * rowCount));
 
-                    mostCommonHistogram.put(convertHistogramBound(mostCommonVals.get(i)), new Integer(count));
+                    mostCommonHistogram.put(convertHistogramBound(mostCommonVals.get(i)), Integer.valueOf(count));
                 }
             }
         }
@@ -392,7 +390,7 @@ public class PostgreSQLDriver implements DatabaseDriver {
                 currentCommonIndex++;
 
                 int index = counts.size() - 1;
-                counts.set(index, new Integer(counts.get(index).intValue() + mostCommonHistogram.get(currentCommonValue).intValue()));
+                counts.set(index, Integer.valueOf(counts.get(index).intValue() + mostCommonHistogram.get(currentCommonValue).intValue()));
 
                 continue;
             }
@@ -412,26 +410,41 @@ public class PostgreSQLDriver implements DatabaseDriver {
 
             currentCommonIndex++;
 
-            counts.set(bucketIndex, new Integer(counts.get(bucketIndex).intValue() + mostCommonHistogram.get(currentCommonValue).intValue()));
+            counts.set(bucketIndex, Integer.valueOf(counts.get(bucketIndex).intValue() + mostCommonHistogram.get(currentCommonValue).intValue()));
         }
-    }
-
-    private JSONArray parseJSONArray(String text) {
-        Object parsed = JSONValue.parse(text);
-        if (!(parsed instanceof JSONArray)) {
-            throw new IllegalStateException("Text in unexpected format. Expected JSON array, got: " + parsed.getClass().getName());
-        }
-
-        return (JSONArray)parsed;
     }
 
     private Comparable convertHistogramBound(Object bound) {
         if (bound instanceof Long) {
-            return new Integer(((Long)bound).intValue());
+            return Integer.valueOf(((Long)bound).intValue());
         } else if (bound instanceof Integer) {
-            return new Integer(((Integer)bound).intValue());
+            return (Integer)bound;
         } else {
             return bound.toString();
+        }
+    }
+
+    private static String formatConnectionString(String host, String port, String user, String password, String databaseName) {
+        String connectionString = String.format(
+                "jdbc:postgresql://%s:%s/%s?loggerLevel=OFF",
+                urlEncode(host), urlEncode(port), urlEncode(databaseName));
+
+        if (user != null && user.length() > 0) {
+            connectionString += "&user=" + urlEncode(user);
+        }
+
+        if (password != null && password.length() > 0) {
+            connectionString += "&password=" + urlEncode(password);
+        }
+
+        return connectionString;
+    }
+
+    private static String urlEncode(String text) {
+        try {
+            return URLEncoder.encode(text, ENCODING);
+        } catch (UnsupportedEncodingException ex) {
+            throw new RuntimeException(String.format("Bad encoding: '%s'.", ENCODING), ex);
         }
     }
 
@@ -457,5 +470,44 @@ public class PostgreSQLDriver implements DatabaseDriver {
         for (String col : predicate.argumentColumns()) {
             executeUpdate(String.format("ALTER TABLE %s ALTER COLUMN %s SET STATISTICS %d", predicate.tableName(), col, statsCount));
         }
+    }
+
+    @Override
+    public ExplainResult explain(String queryString) {
+        log.trace("EXPLAIN " + queryString);
+
+        queryString = "EXPLAIN (FORMAT JSON) " + queryString;
+
+        StringBuilder result = new StringBuilder();
+        try (
+            Connection connection = getConnection();
+            Statement statement = connection.createStatement();
+            ResultSet results = statement.executeQuery(queryString);
+        ) {
+            boolean hasResults = false;
+            while (results.next()) {
+                hasResults = true;
+                result.append(results.getString(1));
+            }
+
+            if (!hasResults) {
+                log.error(queryString);
+                throw new RuntimeException("No results from an EXPLAIN.");
+            }
+        } catch (SQLException ex) {
+            log.error(queryString);
+            throw new RuntimeException("Error EXPLAINing.", ex);
+        }
+
+        JSONArray resultJSON = new JSONArray(result.toString());
+
+        JSONObject plan = resultJSON.getJSONObject(0).getJSONObject("Plan");
+        double totalCost = plan.getDouble("Total Cost");
+        double startupCost = plan.getDouble("Startup Cost");
+        long rows = plan.getLong("Plan Rows");
+
+        log.trace("Estimated Cost: {}, Startup Cost: {}, Estimated Rows: {}", totalCost, startupCost, rows);
+
+        return new ExplainResult(totalCost, startupCost, rows);
     }
 }

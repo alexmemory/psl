@@ -1,7 +1,7 @@
 /*
  * This file is part of the PSL software.
  * Copyright 2011-2015 University of Maryland
- * Copyright 2013-2019 The Regents of the University of California
+ * Copyright 2013-2022 The Regents of the University of California
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -17,15 +17,13 @@
  */
 package org.linqs.psl.application.learning.weight.search.grid;
 
-import org.linqs.psl.config.Config;
+import org.linqs.psl.config.Options;
 import org.linqs.psl.database.Database;
 import org.linqs.psl.model.Model;
 import org.linqs.psl.model.rule.Rule;
+import org.linqs.psl.util.Logger;
 import org.linqs.psl.util.MathUtils;
 import org.linqs.psl.util.StringUtils;
-
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
 
 import java.util.ArrayList;
 import java.util.Collections;
@@ -39,24 +37,7 @@ import java.util.Set;
  * Randomly search a some locations and then look around those locations.
  */
 public class GuidedRandomGridSearch extends RandomGridSearch {
-    private static final Logger log = LoggerFactory.getLogger(GuidedRandomGridSearch.class);
-
-    /**
-     * Prefix of property keys used by this class.
-     */
-    public static final String CONFIG_PREFIX = "guidedrandomgridsearch";
-
-    /**
-     * The number of locations to initially search.
-     */
-    public static final String SEED_LOCATIONS_KEY = CONFIG_PREFIX + ".seedlocations";
-    public static final int SEED_LOCATIONS_DEFAULT = 25;
-
-    /**
-     * The number of initial seed locations to explore based off of whichever ones score the best.
-     */
-    public static final String EXPLORE_LOCATIONS_KEY = CONFIG_PREFIX + ".explorelocations";
-    public static final int EXPLORE_LOCATIONS_DEFAULT = 10;
+    private static final Logger log = Logger.getLogger(GuidedRandomGridSearch.class);
 
     private final int maxNumSeedLocations;
     private int numSeedLocations;
@@ -71,17 +52,11 @@ public class GuidedRandomGridSearch extends RandomGridSearch {
     public GuidedRandomGridSearch(List<Rule> rules, Database rvDB, Database observedDB) {
         super(rules, rvDB, observedDB);
 
-        maxNumSeedLocations = Config.getInt(SEED_LOCATIONS_KEY, SEED_LOCATIONS_DEFAULT);
+        maxNumSeedLocations = Options.WLA_GRGS_SEED_LOCATIONS.getInt();
         numSeedLocations = maxNumSeedLocations;
-        if (numSeedLocations < 1) {
-            throw new IllegalArgumentException("Need at least one location to start the search.");
-        }
 
-        maxNumExploreLocations = Config.getInt(EXPLORE_LOCATIONS_KEY, EXPLORE_LOCATIONS_DEFAULT);
+        maxNumExploreLocations = Options.WLA_GRGS_EXPLORE_LOCATIONS.getInt();
         numExploreLocations = maxNumExploreLocations;
-        if (numExploreLocations < 1) {
-            throw new IllegalArgumentException("Need at least one explore location.");
-        }
 
         // Adjust the number of locations.
         numLocations = Math.min(

@@ -1,7 +1,7 @@
 /*
  * This file is part of the PSL software.
  * Copyright 2011-2015 University of Maryland
- * Copyright 2013-2019 The Regents of the University of California
+ * Copyright 2013-2022 The Regents of the University of California
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -17,7 +17,7 @@
  */
 package org.linqs.psl.util;
 
-import java.util.List;
+import java.util.Arrays;
 
 /**
  * Various static array utilities.
@@ -25,6 +25,42 @@ import java.util.List;
 public final class ArrayUtils {
     // Static only.
     private ArrayUtils() {}
+
+    public static double[] ensureCapacity(double[] array, int capacity) {
+        assert(capacity >= 0);
+
+        if (array.length  <= capacity) {
+            array = Arrays.copyOf(array, (capacity + 1) * 2);
+        }
+        return array;
+    }
+
+    public static float[] ensureCapacity(float[] array, int capacity) {
+        assert(capacity >= 0);
+
+        if (array.length  <= capacity) {
+            array = Arrays.copyOf(array, (capacity + 1) * 2);
+        }
+        return array;
+    }
+
+    public static int[] ensureCapacity(int[] array, int capacity) {
+        assert(capacity >= 0);
+
+        if (array.length  <= capacity) {
+            array = Arrays.copyOf(array, (capacity + 1) * 2);
+        }
+        return array;
+    }
+
+    public static <T> T[] ensureCapacity(T[] array, int capacity) {
+        assert(capacity >= 0);
+
+        if (array.length  <= capacity) {
+            array = Arrays.copyOf(array, (capacity + 1) * 2);
+        }
+        return array;
+    }
 
     public static <T> int indexOf(T[] haystack, T needle) {
         if (haystack == null) {

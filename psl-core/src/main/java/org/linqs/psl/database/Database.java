@@ -1,7 +1,7 @@
 /*
  * This file is part of the PSL software.
  * Copyright 2011-2015 University of Maryland
- * Copyright 2013-2019 The Regents of the University of California
+ * Copyright 2013-2022 The Regents of the University of California
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -22,25 +22,20 @@ import org.linqs.psl.model.atom.GroundAtom;
 import org.linqs.psl.model.atom.ObservedAtom;
 import org.linqs.psl.model.atom.QueryAtom;
 import org.linqs.psl.model.atom.RandomVariableAtom;
-import org.linqs.psl.model.formula.Formula;
 import org.linqs.psl.model.predicate.Predicate;
 import org.linqs.psl.model.predicate.StandardPredicate;
 import org.linqs.psl.model.term.Constant;
-import org.linqs.psl.model.term.Term;
-import org.linqs.psl.model.term.Variable;
+import org.linqs.psl.util.FileUtils;
 import org.linqs.psl.util.IteratorUtils;
 import org.linqs.psl.util.Parallel;
 
-import java.sql.Connection;
-import java.sql.PreparedStatement;
-import java.sql.SQLException;
+import java.io.BufferedWriter;
+import java.io.File;
+import java.io.IOException;
 import java.util.Arrays;
 import java.util.ArrayList;
-import java.util.Collection;
 import java.util.Collections;
-import java.util.HashMap;
 import java.util.List;
-import java.util.Map;
 import java.util.Set;
 
 /**
@@ -130,8 +125,8 @@ public abstract class Database implements ReadableDatabase, WritableDatabase {
             this.readIDs.add(read[i].getID());
         }
 
-        if (readIDs.contains(new Integer(writeID))) {
-            readIDs.remove(new Integer(writeID));
+        if (readIDs.contains(Integer.valueOf(writeID))) {
+            readIDs.remove(Integer.valueOf(writeID));
         }
 
         allPartitionIDs = new ArrayList<Integer>(readIDs.size() + 1);
@@ -141,14 +136,24 @@ public abstract class Database implements ReadableDatabase, WritableDatabase {
         this.cache = new AtomCache(this);
     }
 
-    public abstract GroundAtom getAtom(StandardPredicate predicate, boolean create, Constant... arguments);
+    /**
+     * The full version of getAtom().
+     * This version includes more detailed options on what how/when to create an atom.
+     *
+     * @param create Create an atom if one does not exist.
+     * @param queryDBForClosed Query the database for atoms from closed predicates not in the cache,
+     * @param trivialValue Do not create observed atoms that would have this value (just return null).
+     */
+    public abstract GroundAtom getAtom(StandardPredicate predicate,
+            boolean create, boolean queryDBForClosed, double trivialValue,
+            Constant... arguments);
 
     public boolean hasAtom(StandardPredicate predicate, Constant... arguments) {
-        return getAtom(predicate, false, arguments) != null;
+        return getAtom(predicate, false, true, -1.0, arguments) != null;
     }
 
     public boolean hasCachedAtom(StandardPredicate predicate, Constant... arguments) {
-        // Only allocate one QueryAtom per thread.
+        // Only allocate one GetAtom per thread.
         QueryAtom queryAtom = null;
         if (!Parallel.hasThreadObject(THREAD_QUERY_ATOM_KEY)) {
             queryAtom = new QueryAtom(predicate, arguments);
@@ -212,7 +217,7 @@ public abstract class Database implements ReadableDatabase, WritableDatabase {
         List<RandomVariableAtom> atoms = new ArrayList<RandomVariableAtom>(groundAtoms.size());
         for (GroundAtom atom : groundAtoms) {
             // This is only possible if the predicate is partially observed and this ground atom
-            // was specified as a target and an observation/
+            // was specified as a target and an observation.
             if (atom instanceof ObservedAtom) {
                 throw new IllegalStateException(String.format(
                         "Found a ground atom (%s) that is both observed and a target." +
@@ -241,7 +246,7 @@ public abstract class Database implements ReadableDatabase, WritableDatabase {
         List<ObservedAtom> atoms = new ArrayList<ObservedAtom>(groundAtoms.size());
         for (GroundAtom atom : groundAtoms) {
             // This is only possible if the predicate is partially observed and this ground atom
-            // was specified as a target and an observation/
+            // was specified as a target and an observation.
             if (atom instanceof RandomVariableAtom) {
                 throw new IllegalStateException(String.format(
                         "Found a ground atom (%s) that is both observed and a target." +
@@ -281,8 +286,12 @@ public abstract class Database implements ReadableDatabase, WritableDatabase {
     /**
      * @return the DataStore backing this Database
      */
-    public DataStore getDataStore(){
+    public DataStore getDataStore() {
         return parentDataStore;
+    }
+
+    public AtomCache getCache() {
+        return cache;
     }
 
     public List<Partition> getReadPartitions() {
@@ -293,7 +302,60 @@ public abstract class Database implements ReadableDatabase, WritableDatabase {
         return writePartition;
     }
 
+    /**
+     * Output all random variables to stdout in a human readable format: Foo('a', 'b') = 1.0.
+     */
+    public void outputRandomVariableAtoms() {
+        for (StandardPredicate openPredicate : parentDataStore.getRegisteredPredicates()) {
+            for (GroundAtom atom : getAllGroundRandomVariableAtoms(openPredicate)) {
+                System.out.println(atom.toString() + " = " + atom.getValue());
+            }
+        }
+    }
+
+    /**
+     * Output all random variables in a tab separated format.
+     */
+    public void outputRandomVariableAtoms(String outputDirectoryPath) {
+        File outputDirectory = new File(outputDirectoryPath);
+        FileUtils.mkdir(outputDirectory);
+
+        for (StandardPredicate predicate : parentDataStore.getRegisteredPredicates()) {
+            if (isClosed(predicate)) {
+                continue;
+            }
+
+            List<RandomVariableAtom> atoms = getAllGroundRandomVariableAtoms(predicate);
+            if (atoms.size() == 0) {
+                continue;
+            }
+
+            File outputFile = new File(outputDirectory, predicate.getName() + ".txt");
+            try (BufferedWriter bufferedPredWriter = FileUtils.getBufferedWriter(outputFile)) {
+                StringBuilder row = new StringBuilder();
+                for (GroundAtom atom : atoms) {
+                    row.setLength(0);
+
+                    for (Constant term : atom.getArguments()) {
+                        row.append(term.rawToString());
+                        row.append("\t");
+                    }
+                    row.append(atom.getValue());
+                    row.append(System.lineSeparator());
+
+                    bufferedPredWriter.write(row.toString());
+                }
+            } catch (IOException ex) {
+                throw new RuntimeException("Error writing predicate " + predicate + ".", ex);
+            }
+        }
+    }
+
     public int getCachedRVACount() {
         return cache.getRVACount();
+    }
+
+    public int getCachedObsCount() {
+        return cache.getObsCount();
     }
 }

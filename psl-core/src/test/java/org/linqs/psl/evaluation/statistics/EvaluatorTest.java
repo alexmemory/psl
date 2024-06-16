@@ -1,7 +1,7 @@
 /*
  * This file is part of the PSL software.
  * Copyright 2011-2015 University of Maryland
- * Copyright 2013-2019 The Regents of the University of California
+ * Copyright 2013-2022 The Regents of the University of California
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -26,9 +26,9 @@ import org.linqs.psl.database.loading.Inserter;
 import org.linqs.psl.database.rdbms.RDBMSDataStore;
 import org.linqs.psl.database.rdbms.driver.H2DatabaseDriver;
 import org.linqs.psl.model.predicate.StandardPredicate;
-import org.linqs.psl.model.term.Constant;
 import org.linqs.psl.model.term.ConstantType;
 import org.linqs.psl.model.term.UniqueIntID;
+import org.linqs.psl.test.PSLBaseTest;
 
 import org.junit.After;
 import org.junit.Before;
@@ -37,81 +37,81 @@ import org.junit.Test;
 /**
  * Base testing functionality for all metric computers.
  */
-public abstract class EvaluatorTest<T extends Evaluator> {
+public abstract class EvaluatorTest<T extends Evaluator> extends PSLBaseTest {
     protected DataStore dataStore;
     protected StandardPredicate predicate;
     protected TrainingMap trainingMap;
 
-    protected abstract T getComputer();
+    protected abstract T getEvaluator();
 
     @Before
     public void setUp() {
+        // Initialize with the default setup:
+        // The full map will be (target, truth):
+        // (1.0, 1.0)
+        // (0.8, 0.0)
+        // (0.6, 1.0)
+        // (0.4, 0.0)
+
+        float[] predictions = new float[]{1.0f, 0.8f, 0.6f, 0.4f, 0.2f};
+        float[] truth = new float[]{1.0f, 0.0f, 1.0f, 0.0f};
+
+        init(predictions, truth);
+    }
+
+    protected void init(float[] predictions, float[] truth) {
+        cleanup();
+
         dataStore = new RDBMSDataStore(new H2DatabaseDriver(
                 H2DatabaseDriver.Type.Memory, this.getClass().getName(), true));
 
         predicate = StandardPredicate.get(
-                "DiscretePredictionComparatorTest_same"
-                , new ConstantType[]{ConstantType.UniqueIntID, ConstantType.UniqueIntID}
-            );
+                "EvaulatorTestPredicate",
+                new ConstantType[]{ConstantType.UniqueIntID, ConstantType.UniqueIntID});
         dataStore.registerPredicate(predicate);
 
         Partition targetPartition = dataStore.getPartition("targets");
         Partition truthPartition = dataStore.getPartition("truth");
 
-        // Create some canned ground inference atoms
-        Constant[][] cannedTerms = new Constant[5][];
-        cannedTerms[0] = new Constant[]{ new UniqueIntID(1), new UniqueIntID(1) };
-        cannedTerms[1] = new Constant[]{ new UniqueIntID(2), new UniqueIntID(2) };
-        cannedTerms[2] = new Constant[]{ new UniqueIntID(3), new UniqueIntID(3) };
-        cannedTerms[3] = new Constant[]{ new UniqueIntID(4), new UniqueIntID(4) };
-        cannedTerms[4] = new Constant[]{ new UniqueIntID(5), new UniqueIntID(5) };
-
-        // Insert the predicated values.
         Inserter inserter = dataStore.getInserter(predicate, targetPartition);
-        for (Constant[] terms : cannedTerms) {
-            inserter.insertValue(0.8, terms);
+        for (int i = 0; i < predictions.length; i++) {
+            inserter.insertValue(predictions[i], new UniqueIntID(i), new UniqueIntID(i));
         }
 
-        // create some ground truth atoms
-        Constant[][] baselineTerms = new Constant[4][];
-        baselineTerms[0] = new Constant[]{ new UniqueIntID(1), new UniqueIntID(1) };
-        baselineTerms[1] = new Constant[]{ new UniqueIntID(2), new UniqueIntID(2) };
-        baselineTerms[2] = new Constant[]{ new UniqueIntID(3), new UniqueIntID(3) };
-        baselineTerms[3] = new Constant[]{ new UniqueIntID(4), new UniqueIntID(4) };
-
-        // Insert the truth values.
         inserter = dataStore.getInserter(predicate, truthPartition);
-        for (Constant[] terms : baselineTerms) {
-            inserter.insertValue(1.0, terms);
+        for (int i = 0; i < truth.length; i++) {
+            inserter.insertValue(truth[i], new UniqueIntID(i), new UniqueIntID(i));
         }
 
         // Redefine the truth database with no atoms in the write partition.
-        Database results = dataStore.getDatabase(targetPartition);
-        Database truth = dataStore.getDatabase(truthPartition, dataStore.getRegisteredPredicates());
+        Database resultsDB = dataStore.getDatabase(targetPartition);
+        Database truthDB = dataStore.getDatabase(truthPartition, dataStore.getRegisteredPredicates());
 
-        PersistedAtomManager atomManager = new PersistedAtomManager(results);
-        trainingMap = new TrainingMap(atomManager, truth, true);
+        PersistedAtomManager atomManager = new PersistedAtomManager(resultsDB);
+        trainingMap = new TrainingMap(atomManager, truthDB);
 
         // Since we only need the map, we can close all the databases.
-        results.close();
-        truth.close();
+        resultsDB.close();
+        truthDB.close();
     }
 
     @After
     public void cleanup() {
         trainingMap = null;
-        dataStore.close();
+
+        if (dataStore != null) {
+            dataStore.close();
+            dataStore = null;
+        }
     }
 
     /**
-     * Just make sure it runs, don't worry about specific numbers.
+     * Just make sure the evaluator runs, don't worry about specific numbers.
      */
     @Test
-    public void baseTest() {
-        Evaluator computer = getComputer();
-        computer.compute(trainingMap, predicate);
-
-        boolean higherBetter = computer.isHigherRepresentativeBetter();
-        double score = computer.getRepresentativeMetric();
+    public void testBase() {
+        Evaluator evaluator = getEvaluator();
+        evaluator.compute(trainingMap, predicate);
+        double score = evaluator.getNormalizedRepMetric();
     }
 }

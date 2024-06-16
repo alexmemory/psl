@@ -1,7 +1,7 @@
 /*
  * This file is part of the PSL software.
  * Copyright 2011-2015 University of Maryland
- * Copyright 2013-2019 The Regents of the University of California
+ * Copyright 2013-2022 The Regents of the University of California
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -17,34 +17,37 @@
  */
 package org.linqs.psl.reasoner.dcd.term;
 
-import org.linqs.psl.model.atom.RandomVariableAtom;
+import org.linqs.psl.model.atom.GroundAtom;
+import org.linqs.psl.model.rule.AbstractRule;
+import org.linqs.psl.model.rule.WeightedRule;
 import org.linqs.psl.reasoner.term.Hyperplane;
 import org.linqs.psl.reasoner.term.ReasonerTerm;
 import org.linqs.psl.reasoner.term.VariableTermStore;
-import org.linqs.psl.util.MathUtils;
+import org.linqs.psl.reasoner.term.streaming.StreamingTerm;
 
 import java.nio.ByteBuffer;
-import java.util.Map;
 
 /**
  * A term in the objective to be optimized by a DCDReasoner.
  */
-public class DCDObjectiveTerm implements ReasonerTerm  {
+public class DCDObjectiveTerm implements StreamingTerm {
     private boolean squared;
 
-    private float adjustedWeight;
+    private WeightedRule rule;
     private float constant;
     private float lagrange;
     private float qii;
+    private float c;
 
     private short size;
     private float[] coefficients;
     private int[] variableIndexes;
 
-    public DCDObjectiveTerm(VariableTermStore<DCDObjectiveTerm, RandomVariableAtom> termStore,
+    public DCDObjectiveTerm(VariableTermStore<DCDObjectiveTerm, GroundAtom> termStore,
+            WeightedRule rule,
             boolean squared,
-            Hyperplane<RandomVariableAtom> hyperplane,
-            float weight, float c) {
+            Hyperplane<GroundAtom> hyperplane,
+            float c) {
         this.squared = squared;
 
         size = (short)hyperplane.size();
@@ -52,12 +55,13 @@ public class DCDObjectiveTerm implements ReasonerTerm  {
         constant = hyperplane.getConstant();
 
         variableIndexes = new int[size];
-        RandomVariableAtom[] variables = hyperplane.getVariables();
+        GroundAtom[] variables = hyperplane.getVariables();
         for (int i = 0; i < size; i++) {
             variableIndexes[i] = termStore.getVariableIndex(variables[i]);
         }
 
-        adjustedWeight = weight * c;
+        this.rule = rule;
+        this.c = c;
 
         float tempQii = 0f;
         for (int i = 0; i < size; i++) {
@@ -68,19 +72,15 @@ public class DCDObjectiveTerm implements ReasonerTerm  {
         lagrange = 0.0f;
     }
 
-    public float getLagrange() {
-        return lagrange;
-    }
-
     public float evaluate(float[] variableValues) {
         float value = 0.0f;
+        float adjustedWeight = rule.getWeight() * c;
 
         for (int i = 0; i < size; i++) {
             value += coefficients[i] * variableValues[variableIndexes[i]];
         }
 
         value -= constant;
-
 
         if (squared) {
             // weight * [max(coeffs^T * x - constant, 0.0)]^2
@@ -91,22 +91,25 @@ public class DCDObjectiveTerm implements ReasonerTerm  {
         }
     }
 
-    public void minimize(boolean truncateEveryStep, float[] variableValues) {
-        if (squared) {
-            float gradient = computeGradient(variableValues);
-            gradient += lagrange / (2.0f * adjustedWeight);
-            minimize(truncateEveryStep, gradient, Float.POSITIVE_INFINITY, variableValues);
-        } else {
-            minimize(truncateEveryStep, computeGradient(variableValues), adjustedWeight, variableValues);
-        }
-    }
-
     @Override
     public int size() {
         return size;
     }
 
-    private float computeGradient(float[] variableValues) {
+    public boolean isSquared() {
+        return squared;
+    }
+
+    @Override
+    public void adjustConstant(float oldValue, float newValue) {
+        constant = constant - oldValue + newValue;
+    }
+
+    public boolean isConvex() {
+        return true;
+    }
+
+    public float computeGradient(float[] variableValues) {
         float val = 0.0f;
 
         for (int i = 0; i < size; i++) {
@@ -116,56 +119,51 @@ public class DCDObjectiveTerm implements ReasonerTerm  {
         return constant - val;
     }
 
-    private void minimize(boolean truncateEveryStep, float gradient, float lim, float[] variableValues) {
-        float pg = gradient;
-        if (MathUtils.isZero(lagrange)) {
-            pg = Math.min(0.0f, gradient);
-        }
-
-        if (MathUtils.equals(lim, adjustedWeight) && MathUtils.equals(lagrange, adjustedWeight)) {
-            pg = Math.max(0.0f, gradient);
-        }
-
-        if (MathUtils.isZero(pg)) {
-            return;
-        }
-
-        float pa = lagrange;
-        lagrange = Math.min(lim, Math.max(0.0f, lagrange - gradient / qii));
-        for (int i = 0; i < size; i++) {
-            float val = variableValues[variableIndexes[i]] - ((lagrange - pa) * coefficients[i]);
-            if (truncateEveryStep) {
-                val = Math.max(0.0f, Math.min(1.0f, val));
-            }
-            variableValues[variableIndexes[i]] = val;
-        }
+    public float[] getCoefficients() {
+        return coefficients;
     }
 
-    /**
-     * The number of bytes that writeFixedValues() will need to represent this term.
-     * This is just all the member datum minus the lagrange value.
-     */
+    public float getLagrange() {
+        return lagrange;
+    }
+
+    public void setLagrange(float lagrange) {
+        this.lagrange = lagrange;
+    }
+
+    public WeightedRule getRule() {
+        return rule;
+    }
+
+    public int[] getVariableIndexes() {
+        return variableIndexes;
+    }
+
+    public float getQii() {
+        return qii;
+    }
+
+    @Override
     public int fixedByteSize() {
         int bitSize =
             Byte.SIZE  // squared
-            + Float.SIZE  // adjustedWeight
+            + Integer.SIZE  // rule hash
             + Float.SIZE  // constant
             + Float.SIZE  // qii
+            + Float.SIZE  // c
             + Short.SIZE  // size
             + size * (Float.SIZE + Integer.SIZE);  // coefficients + variableIndexes
 
         return bitSize / 8;
     }
 
-    /**
-     * Write a binary representation of the fixed values of this term to a buffer.
-     * Note that the variableIndexes are written using the term store indexing.
-     */
+    @Override
     public void writeFixedValues(ByteBuffer fixedBuffer) {
         fixedBuffer.put((byte)(squared ? 1 : 0));
-        fixedBuffer.putFloat(adjustedWeight);
+        fixedBuffer.putInt(rule.hashCode());
         fixedBuffer.putFloat(constant);
         fixedBuffer.putFloat(qii);
+        fixedBuffer.putFloat(c);
         fixedBuffer.putShort(size);
 
         for (int i = 0; i < size; i++) {
@@ -174,14 +172,13 @@ public class DCDObjectiveTerm implements ReasonerTerm  {
         }
     }
 
-    /**
-     * Assume the term that will be next read from the buffers.
-     */
+    @Override
     public void read(ByteBuffer fixedBuffer, ByteBuffer volatileBuffer) {
         squared = (fixedBuffer.get() == 1);
-        adjustedWeight = fixedBuffer.getFloat();
+        rule = (WeightedRule)AbstractRule.getRule(fixedBuffer.getInt());
         constant = fixedBuffer.getFloat();
         qii = fixedBuffer.getFloat();
+        c = fixedBuffer.getFloat();
         size = fixedBuffer.getShort();
 
         // Make sure that there is enough room for all these variableIndexes.
@@ -200,19 +197,30 @@ public class DCDObjectiveTerm implements ReasonerTerm  {
 
     @Override
     public String toString() {
+        return toString(null);
+    }
+
+    public String toString(float[] variableValues) {
         // weight * [max(coeffs^T * x - constant, 0.0)]^2
 
         StringBuilder builder = new StringBuilder();
 
-        builder.append(adjustedWeight);
+        builder.append("" + rule.getWeight() + " * " + c);
         builder.append(" * max(0.0, ");
 
         for (int i = 0; i < size; i++) {
             builder.append("(");
             builder.append(coefficients[i]);
-            builder.append(" * ");
-            builder.append(variableIndexes[i]);
-            builder.append(")");
+
+            if (variableValues == null) {
+                builder.append(" * <index:");
+                builder.append(variableIndexes[i]);
+                builder.append(">)");
+            } else {
+                builder.append(" * ");
+                builder.append(variableValues[variableIndexes[i]]);
+                builder.append(")");
+            }
 
             if (i != size - 1) {
                 builder.append(" + ");

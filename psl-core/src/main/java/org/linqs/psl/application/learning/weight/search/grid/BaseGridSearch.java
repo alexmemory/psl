@@ -1,7 +1,7 @@
 /*
  * This file is part of the PSL software.
  * Copyright 2011-2015 University of Maryland
- * Copyright 2013-2019 The Regents of the University of California
+ * Copyright 2013-2022 The Regents of the University of California
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -18,14 +18,11 @@
 package org.linqs.psl.application.learning.weight.search.grid;
 
 import org.linqs.psl.application.learning.weight.WeightLearningApplication;
-import org.linqs.psl.config.Config;
 import org.linqs.psl.database.Database;
 import org.linqs.psl.model.Model;
 import org.linqs.psl.model.rule.Rule;
-import org.linqs.psl.reasoner.admm.term.ADMMTermStore;
-
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
+import org.linqs.psl.util.Logger;
+import org.linqs.psl.util.MathUtils;
 
 import java.util.HashMap;
 import java.util.List;
@@ -38,18 +35,7 @@ import java.util.Map;
  * rather than through ADMM's configuration so you don't globally change the number of iterations.
  */
 public abstract class BaseGridSearch extends WeightLearningApplication {
-    private static final Logger log = LoggerFactory.getLogger(BaseGridSearch.class);
-
-    /**
-     * Prefix of property keys used by this class.
-     */
-    public static final String CONFIG_PREFIX = "basegridsearch";
-
-    /**
-     * The current location we are investigating.
-     * The exact representation is up to the implementing child class.
-     */
-    protected String currentLocation;
+    private static final Logger log = Logger.getLogger(BaseGridSearch.class);
 
     /**
      * The number of actual possible locations.
@@ -69,32 +55,35 @@ public abstract class BaseGridSearch extends WeightLearningApplication {
      */
     protected Map<String, Double> objectives;
 
+    /**
+     * The current location we are investigating.
+     * The exact representation is up to the implementing child class.
+     */
+    protected String currentLocation;
+
     public BaseGridSearch(Model model, Database rvDB, Database observedDB) {
         this(model.getRules(), rvDB, observedDB);
     }
 
-    // TODO(eriq): Latent variables?
     public BaseGridSearch(List<Rule> rules, Database rvDB, Database observedDB) {
-        super(rules, rvDB, observedDB, false);
-
-        currentLocation = null;
+        super(rules, rvDB, observedDB);
 
         maxNumLocations = 0;
         numLocations = maxNumLocations;
 
         objectives = new HashMap<String, Double>();
+
+        currentLocation = null;
     }
 
     @Override
     protected void doLearn() {
-        double bestObjective = -1;
-        double[] bestWeights = new double[mutableRules.size()];
+        double bestObjective = -1.0;
+        float[] bestWeights = new float[mutableRules.size()];
+        float[] weights = new float[mutableRules.size()];
+        float[] unitWeightVector = new float[mutableRules.size()];
 
-        // Computes the observed incompatibilities.
-        computeObservedIncompatibility();
-
-        double[] weights = new double[mutableRules.size()];
-
+        boolean nonZero = false;
         for (int iteration = 0; iteration < numLocations; iteration++) {
             if (!chooseNextLocation()) {
                 log.debug("Stopping search.");
@@ -104,7 +93,22 @@ public abstract class BaseGridSearch extends WeightLearningApplication {
             log.debug("Iteration {} / {} ({}) -- Inspecting location {}", iteration, numLocations, maxNumLocations, currentLocation);
 
             // Set the weights for the current round.
+            nonZero = false;
             getWeights(weights);
+            System.arraycopy(weights, 0, unitWeightVector, 0, weights.length);
+
+            // Check that there is at least one non-zero weight.
+            for (int i = 0; i < weights.length; i++) {
+                if (weights[i] > 0.0) {
+                    nonZero = true;
+                    break;
+                }
+            }
+
+            if (nonZero) {
+                MathUtils.toUnit(unitWeightVector);
+            }
+
             for (int i = 0; i < mutableRules.size(); i++) {
                 mutableRules.get(i).setWeight(weights[i]);
             }
@@ -113,12 +117,11 @@ public abstract class BaseGridSearch extends WeightLearningApplication {
 
             // The weights have changed, so we are no longer in an MPE state.
             inMPEState = false;
-            inLatentMPEState = false;
 
             double objective = inspectLocation(weights);
 
             // Log this location.
-            objectives.put(currentLocation, new Double(objective));
+            objectives.put(currentLocation, Double.valueOf(objective));
 
             if (iteration == 0 || objective < bestObjective) {
                 bestObjective = objective;
@@ -127,7 +130,7 @@ public abstract class BaseGridSearch extends WeightLearningApplication {
                 }
             }
 
-            log.debug("Location {} -- objective: {}", currentLocation, objective);
+            log.debug("Weights: {} -- objective: {}", currentLocation, objective);
         }
 
         // Set the final weights.
@@ -137,7 +140,6 @@ public abstract class BaseGridSearch extends WeightLearningApplication {
 
         // The weights have changed, so we are no longer in an MPE state.
         inMPEState = false;
-        inLatentMPEState = false;
     }
 
     /**
@@ -148,30 +150,21 @@ public abstract class BaseGridSearch extends WeightLearningApplication {
      * This is a prime method for child classes to override.
      * Implementers should make sure to correct (negate) the value that comes back from the Evaluator
      * if lower is better for that evaluator.
+     * @param weights
      */
-    protected double inspectLocation(double[] weights) {
-        // Reset the RVAs to default values.
-        setDefaultRandomVariables();
-
-        if (termStore instanceof ADMMTermStore) {
-            ((ADMMTermStore)termStore).resetLocalVairables();
-        }
-
-        // Computes the expected incompatibility.
-        computeExpectedIncompatibility();
+    protected double inspectLocation(float[] weights) {
+        computeMPEState();
 
         evaluator.compute(trainingMap);
 
-        double score = evaluator.getRepresentativeMetric();
-        score = evaluator.isHigherRepresentativeBetter() ? -1.0 * score : score;
-
-        return score;
+        return -1.0 * evaluator.getNormalizedRepMetric();
     }
 
     /**
      * Get the weight configuration at the current location.
+     * @param weights
      */
-    protected abstract void getWeights(double[] weights);
+    protected abstract void getWeights(float[] weights);
 
     /**
      * Choose the next location we will search.

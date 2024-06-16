@@ -1,7 +1,7 @@
 /*
  * This file is part of the PSL software.
  * Copyright 2011-2015 University of Maryland
- * Copyright 2013-2019 The Regents of the University of California
+ * Copyright 2013-2022 The Regents of the University of California
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -19,9 +19,7 @@ package org.linqs.psl.model;
 
 import org.linqs.psl.application.ModelApplication;
 import org.linqs.psl.model.rule.Rule;
-
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
+import org.linqs.psl.util.Logger;
 
 import java.util.Collections;
 import java.util.HashSet;
@@ -34,7 +32,7 @@ import java.util.Set;
  * Encapsulates a set of {@link Rule Rules}.
  */
 public class Model {
-    private static final Logger log = LoggerFactory.getLogger(Model.class);
+    private static final Logger log = Logger.getLogger(Model.class);
 
     protected final List<Rule> rules;
 
@@ -89,25 +87,26 @@ public class Model {
 
     @Override
     public String toString() {
-        StringBuilder s = new StringBuilder();
-        s.append("Model:\n");
-        s.append(asString());
-        return s.toString();
+        StringBuilder builder = new StringBuilder();
+        builder.append("Model:");
+        builder.append(System.lineSeparator());
+        builder.append(asString());
+        return builder.toString();
     }
 
     /**
      * Create a model string that can be directly interpreted by the parser.
      */
     public String asString() {
-        StringBuilder s = new StringBuilder();
+        StringBuilder builder = new StringBuilder();
         if (rules.size() > 0) {
-            s.append(rules.get(0));
+            builder.append(rules.get(0));
         }
 
         for (int i = 1; i < rules.size(); i++) {
-            s.append("\n").append(rules.get(i));
+            builder.append(System.lineSeparator()).append(rules.get(i));
         }
 
-        return s.toString();
+        return builder.toString();
     }
 }

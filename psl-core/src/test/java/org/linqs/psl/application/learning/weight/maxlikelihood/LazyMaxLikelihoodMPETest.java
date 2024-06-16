@@ -1,7 +1,7 @@
 /*
  * This file is part of the PSL software.
  * Copyright 2011-2015 University of Maryland
- * Copyright 2013-2019 The Regents of the University of California
+ * Copyright 2013-2022 The Regents of the University of California
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -17,12 +17,15 @@
  */
 package org.linqs.psl.application.learning.weight.maxlikelihood;
 
+import org.linqs.psl.application.inference.mpe.LazyMPEInference;
 import org.linqs.psl.application.learning.weight.WeightLearningApplication;
 import org.linqs.psl.application.learning.weight.WeightLearningTest;
+import org.linqs.psl.config.Options;
 
 public class LazyMaxLikelihoodMPETest extends WeightLearningTest {
     @Override
     protected WeightLearningApplication getWLA() {
-        return new LazyMaxLikelihoodMPE(info.model.getRules(), weightLearningTrainDB, weightLearningTruthDB);
+        Options.WLA_INFERENCE.set(LazyMPEInference.class.getName());
+        return new MaxLikelihoodMPE(info.model.getRules(), weightLearningTrainDB, weightLearningTruthDB);
     }
 }

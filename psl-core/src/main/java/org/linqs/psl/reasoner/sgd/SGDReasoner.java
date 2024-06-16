@@ -1,7 +1,7 @@
 /*
  * This file is part of the PSL software.
  * Copyright 2011-2015 University of Maryland
- * Copyright 2013-2019 The Regents of the University of California
+ * Copyright 2013-2022 The Regents of the University of California
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -17,143 +17,296 @@
  */
 package org.linqs.psl.reasoner.sgd;
 
-import org.linqs.psl.config.Config;
-import org.linqs.psl.model.atom.RandomVariableAtom;
+import org.linqs.psl.application.learning.weight.TrainingMap;
+import org.linqs.psl.config.Options;
+import org.linqs.psl.evaluation.statistics.Evaluator;
+import org.linqs.psl.model.atom.GroundAtom;
+import org.linqs.psl.model.atom.ObservedAtom;
+import org.linqs.psl.model.predicate.StandardPredicate;
+import org.linqs.psl.model.rule.WeightedRule;
 import org.linqs.psl.reasoner.Reasoner;
 import org.linqs.psl.reasoner.sgd.term.SGDObjectiveTerm;
 import org.linqs.psl.reasoner.term.TermStore;
 import org.linqs.psl.reasoner.term.VariableTermStore;
+import org.linqs.psl.util.ArrayUtils;
 import org.linqs.psl.util.IteratorUtils;
+import org.linqs.psl.util.Logger;
 import org.linqs.psl.util.MathUtils;
+import org.linqs.psl.util.RandUtils;
 
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
-
+import java.util.Arrays;
 import java.util.Iterator;
+import java.util.List;
+import java.util.Set;
 
 /**
  * Uses an SGD optimization method to optimize its GroundRules.
  */
-public class SGDReasoner implements Reasoner {
-    private static final Logger log = LoggerFactory.getLogger(SGDReasoner.class);
+public class SGDReasoner extends Reasoner {
+    private static final Logger log = Logger.getLogger(SGDReasoner.class);
+
+    private static final float EPSILON = 1e-8f;
 
     /**
-     * Prefix of property keys used by this class.
+     * The SGD Extension to use.
      */
-    public static final String CONFIG_PREFIX = "sgd";
+    public static enum SGDExtension {
+        NONE,
+        ADAGRAD,
+        ADAM
+    }
 
     /**
-     * The maximum number of iterations of SGD to perform in a round of inference.
+     * The SGD learning schedule to use.
      */
-    public static final String MAX_ITER_KEY = CONFIG_PREFIX + ".maxiterations";
-    public static final int MAX_ITER_DEFAULT = 200;
+    public static enum SGDLearningSchedule {
+        CONSTANT,
+        STEPDECAY
+    }
 
-    /**
-     * Stop if the objective has not changed since the last logging period (see LOG_PERIOD).
-     */
-    public static final String OBJECTIVE_BREAK_KEY = CONFIG_PREFIX + ".objectivebreak";
-    public static final boolean OBJECTIVE_BREAK_DEFAULT = true;
+    private int maxIterations;
 
-    /**
-     * The maximum number of iterations of SGD to perform in a round of inference.
-     */
-    public static final String OBJ_TOL_KEY = CONFIG_PREFIX + ".tolerance";
-    public static final float OBJ_TOL_DEFAULT = 0.00001f;
+    private float firstOrderTolerance;
+    private float firstOrderNorm;
 
+    private boolean watchMovement;
+    private float movementThreshold;
 
-    public static final String LEARNING_RATE_KEY = CONFIG_PREFIX + ".learningrate";
-    public static final float LEARNING_RATE_DEFAULT = 1.0f;
-
-    public static final String PRINT_OBJECTIVE = CONFIG_PREFIX + ".printobj";
-    public static final boolean PRINT_OBJECTIVE_DEFAULT = true;
-
-    /**
-     * Print the objective before any optimization.
-     * Note that this will require a pass through all the terms,
-     * and therefore may affect performance.
-     * Has no effect if printobj is false.
-     */
-    public static final String PRINT_INITIAL_OBJECTIVE_KEY = CONFIG_PREFIX + ".printinitialobj";
-    public static final boolean PRINT_INITIAL_OBJECTIVE_DEFAULT = false;
-
-    private int maxIter;
-
-    private float tolerance;
-    private boolean printObj;
-    private boolean printInitialObj;
-    private boolean objectiveBreak;
+    private float initialLearningRate;
+    private float learningRateInverseScaleExp;
+    private float adamBeta1;
+    private float adamBeta2;
+    private float[] accumulatedGradientSquares;
+    private float[] accumulatedGradientMean;
+    private float[] accumulatedGradientVariance;
+    private boolean coordinateStep;
+    private SGDLearningSchedule learningSchedule;
+    private SGDExtension sgdExtension;
 
     public SGDReasoner() {
-        maxIter = Config.getInt(MAX_ITER_KEY, MAX_ITER_DEFAULT);
-        objectiveBreak = Config.getBoolean(OBJECTIVE_BREAK_KEY, OBJECTIVE_BREAK_DEFAULT);
-        printObj = Config.getBoolean(PRINT_OBJECTIVE, PRINT_OBJECTIVE_DEFAULT);
-        printInitialObj = Config.getBoolean(PRINT_INITIAL_OBJECTIVE_KEY, PRINT_INITIAL_OBJECTIVE_DEFAULT);
-        tolerance = Config.getFloat(OBJ_TOL_KEY, OBJ_TOL_DEFAULT);
-    }
+        maxIterations = Options.SGD_MAX_ITER.getInt();
 
-    public int getMaxIter() {
-        return maxIter;
-    }
+        firstOrderTolerance = Options.SGD_FIRST_ORDER_THRESHOLD.getFloat();
+        firstOrderNorm = Options.SGD_FIRST_ORDER_NORM.getFloat();
 
-    public void setMaxIter(int maxIter) {
-        this.maxIter = maxIter;
+        watchMovement = Options.SGD_MOVEMENT.getBoolean();
+        movementThreshold = Options.SGD_MOVEMENT_THRESHOLD.getFloat();
+
+        initialLearningRate = Options.SGD_LEARNING_RATE.getFloat();
+        learningRateInverseScaleExp = Options.SGD_INVERSE_TIME_EXP.getFloat();
+        learningSchedule = SGDLearningSchedule.valueOf(Options.SGD_LEARNING_SCHEDULE.getString().toUpperCase());
+
+        adamBeta1 = Options.SGD_ADAM_BETA_1.getFloat();
+        adamBeta2 = Options.SGD_ADAM_BETA_2.getFloat();
+        accumulatedGradientSquares = null;
+        accumulatedGradientMean = null;
+        accumulatedGradientVariance = null;
+        coordinateStep = Options.SGD_COORDINATE_STEP.getBoolean();
+        sgdExtension = SGDExtension.valueOf(Options.SGD_EXTENSION.getString().toUpperCase());
     }
 
     @Override
-    public void optimize(TermStore baseTermStore) {
+    public double optimize(TermStore baseTermStore,
+            List<Evaluator> evaluators, TrainingMap trainingMap, Set<StandardPredicate> evaluationPredicates) {
         if (!(baseTermStore instanceof VariableTermStore)) {
-            throw new IllegalArgumentException("SGDReasoner requires an VariableTermStore (found " + baseTermStore.getClass().getName() + ").");
+            throw new IllegalArgumentException("SGDReasoner requires a VariableTermStore (found " + baseTermStore.getClass().getName() + ").");
         }
 
         @SuppressWarnings("unchecked")
-        VariableTermStore<SGDObjectiveTerm, RandomVariableAtom> termStore = (VariableTermStore<SGDObjectiveTerm, RandomVariableAtom>)baseTermStore;
+        VariableTermStore<SGDObjectiveTerm, GroundAtom> termStore = (VariableTermStore<SGDObjectiveTerm, GroundAtom>)baseTermStore;
 
-        // This must be called after the term store has to correct variable capacity.
-        // A reallocation can cause this array to become out-of-date.
-        float[] variableValues = termStore.getVariableValues();
+        termStore.initForOptimization();
+        initForOptimization(termStore);
 
-        float objective = -1.0f;
-        float oldObjective = Float.POSITIVE_INFINITY;
+        long termCount = 0;
+        float meanMovement = 0.0f;
+        float learningRate = 0.0f;
+        double change = 0.0;
+        double objective = 0.0;
+        // Starting on the second iteration, keep track of the previous iteration's objective value.
+        // The variable values from the term store cannot be used to calculate the objective during an
+        // optimization pass because they are being updated in the variableUpdate() method.
+        // Note that the number of variables may change in the first iteration (since grounding may happen then).
+        double oldObjective = Double.POSITIVE_INFINITY;
+        float[] prevGradient = null;
+        float[] prevVariableValues = null;
+        // Save and use the variable values with the lowest computed objective.
+        double lowestObjective = Double.POSITIVE_INFINITY;
+        float[] lowestVariableValues = null;
+        int lowestIteration = 0;
 
+        long totalTime = 0;
+        boolean breakSGD = false;
         int iteration = 1;
-        if (printObj) {
-            log.trace("objective:Iterations,Time(ms),Objective");
 
-            if (printInitialObj) {
-                objective = computeObjective(termStore, variableValues);
-                log.trace("objective:{},{},{}", 0, 0, objective);
-            }
-        }
-
-        long time = 0;
-        while (iteration <= maxIter
-                && (!objectiveBreak || (iteration == 1 || !MathUtils.equals(objective, oldObjective, tolerance)))) {
+        while(!breakSGD) {
             long start = System.currentTimeMillis();
 
+            termCount = 0;
+            meanMovement = 0.0f;
+            objective = 0.0;
+            learningRate = calculateAnnealedLearningRate(iteration);
+
+            boolean useNonConvex = false;
+            if ((iteration >= nonconvexPeriod) && (iteration % nonconvexPeriod < nonconvexRounds)) {
+                useNonConvex = true;
+            }
+
+            if (iteration > 1) {
+                // Reset gradients for next round.
+                Arrays.fill(prevGradient, 0.0f);
+            }
+
             for (SGDObjectiveTerm term : termStore) {
-                term.minimize(iteration, variableValues);
+                if (iteration > 1) {
+                    objective += term.evaluate(prevVariableValues);
+                    addTermGradient(term, prevGradient, prevVariableValues, termStore.getVariableAtoms());
+                }
+
+                termCount++;
+                meanMovement += variableUpdate(term, termStore, iteration, learningRate);
+            }
+
+            evaluate(termStore, iteration, evaluators, trainingMap, evaluationPredicates);
+
+            termStore.iterationComplete();
+
+            if (termCount != 0) {
+                meanMovement /= termCount;
+            }
+
+            if (iteration == 1) {
+                // Initialize old variables values and gradient.
+                prevGradient = new float[termStore.getVariableValues().length];
+                prevVariableValues = Arrays.copyOf(termStore.getVariableValues(), termStore.getVariableValues().length);
+                lowestVariableValues = Arrays.copyOf(termStore.getVariableValues(), termStore.getVariableValues().length);
+            } else {
+                clipGradient(prevGradient, prevVariableValues);
+                breakSGD = breakOptimization(iteration, objective, oldObjective, prevGradient, meanMovement, termCount);
+
+                // Update lowest objective and variable values.
+                if (objective < lowestObjective) {
+                    lowestIteration = iteration - 1;
+                    lowestObjective = objective;
+                    System.arraycopy(prevVariableValues, 0, lowestVariableValues, 0, lowestVariableValues.length);
+                }
+
+                // Update old variables values and objective.
+                System.arraycopy(termStore.getVariableValues(), 0, prevVariableValues, 0, prevVariableValues.length);
+                oldObjective = objective;
             }
 
             long end = System.currentTimeMillis();
-            oldObjective = objective;
-            objective = computeObjective(termStore, variableValues);
-            time += end - start;
+            totalTime += end - start;
 
-            if (printObj) {
-                log.info("objective:{},{},{}", iteration, time, objective);
+            if (iteration > 1 && log.isTraceEnabled()) {
+                log.trace("Iteration {} -- Objective: {}, Normalized Objective: {}, Gradient Norm: {}, Iteration Time: {}, Total Optimization Time: {}",
+                        iteration - 1, objective, objective / termCount, MathUtils.pNorm(prevGradient, firstOrderNorm), (end - start), totalTime);
             }
 
             iteration++;
         }
+        optimizationComplete();
 
-        termStore.syncAtoms();
+        // Compute final objective and update lowest variable values, then set termStore values with lowest values.
+        objective = computeObjective(termStore);
+        if (objective < lowestObjective) {
+            lowestIteration = iteration - 1;
+            lowestObjective = objective;
+            lowestVariableValues = prevVariableValues;
+        }
 
-        log.info("Optimization completed in {} iterations. Objective.: {}", iteration - 1, objective);
-        log.debug("Optimized with {} variables and {} terms.", termStore.getNumVariables(), termStore.size());
+        float[] variableValues = termStore.getVariableValues();
+        System.arraycopy(lowestVariableValues, 0, variableValues, 0, variableValues.length);
+
+        // Compute variable change and log optimization information.
+        change = termStore.syncAtoms();
+        log.info("Final Objective: {}, Final Normalized Objective: {}, Total Optimization Time: {}, Total Number of Iterations: {}", lowestObjective, lowestObjective / termCount, totalTime, iteration);
+        log.debug("Movement of variables from initial state: {}", change);
+        log.debug("Optimized with {} variables and {} terms.", termStore.getNumRandomVariables(), termCount);
+        log.debug("Lowest objective reached at iteration: {}", lowestIteration);
+
+        return lowestObjective;
     }
 
-    public float computeObjective(VariableTermStore<SGDObjectiveTerm, RandomVariableAtom> termStore, float[] variableValues) {
-        float objective = 0.0f;
+    private void initForOptimization(VariableTermStore<SGDObjectiveTerm, GroundAtom> termStore) {
+        switch (sgdExtension) {
+            case NONE:
+                break;
+            case ADAGRAD:
+                accumulatedGradientSquares = new float[termStore.getNumRandomVariables()];
+                break;
+            case ADAM:
+                accumulatedGradientMean = new float[termStore.getNumRandomVariables()];
+                accumulatedGradientVariance = new float[termStore.getNumRandomVariables()];
+                break;
+            default:
+                throw new IllegalArgumentException(String.format("Unsupported SGD Extensions: '%s'", sgdExtension));
+        }
+    }
+
+    private void optimizationComplete() {
+        accumulatedGradientSquares = null;
+        accumulatedGradientMean = null;
+        accumulatedGradientVariance = null;
+    }
+
+    private boolean breakOptimization(int iteration, double objective, double oldObjective, float[] gradient, float movement, long termCount) {
+        // Always break when the allocated iterations is up.
+        if (iteration > (int)(maxIterations * budget)) {
+            return true;
+        }
+
+        // Run through the maximum number of iterations.
+        if (runFullIterations) {
+            return false;
+        }
+
+        // Do not break if there is too much movement.
+        if (watchMovement && movement > movementThreshold) {
+            return false;
+        }
+
+        // Break if the norm of the gradient is zero.
+        if (MathUtils.equals(MathUtils.pNorm(gradient, firstOrderNorm), 0.0f, firstOrderTolerance)) {
+            return true;
+        }
+
+        // Break if the objective has not changed.
+        if (objectiveBreak && MathUtils.equals(objective / termCount, oldObjective / termCount, tolerance)) {
+            return true;
+        }
+
+        return false;
+    }
+
+    private void clipGradient(float[] gradient, float[] variableValues) {
+        for(int i = 0; i < gradient.length; i++) {
+            if (MathUtils.equals(variableValues[i], 0.0f) && gradient[i] > 0.0f) {
+                gradient[i] = 0.0f;
+            } else if (MathUtils.equals(variableValues[i], 1.0f) && gradient[i] < 0.0f) {
+                gradient[i] = 0.0f;
+            }
+        }
+    }
+
+    private void addTermGradient(SGDObjectiveTerm term, float[] gradient, float[] variableValues, GroundAtom[] variableAtoms) {
+        int size = term.size();
+        WeightedRule rule = term.getRule();
+        int[] variableIndexes = term.getVariableIndexes();
+        float dot = term.dot(variableValues);
+
+        for (int i = 0 ; i < size; i++) {
+            if (variableAtoms[variableIndexes[i]] instanceof ObservedAtom) {
+                continue;
+            }
+
+            gradient[variableIndexes[i]] += term.computePartial(i, dot, rule.getWeight());
+        }
+    }
+
+    private double computeObjective(VariableTermStore<SGDObjectiveTerm, GroundAtom> termStore) {
+        double objective = 0.0;
 
         // If possible, use a readonly iterator.
         Iterator<SGDObjectiveTerm> termIterator = null;
@@ -163,11 +316,148 @@ public class SGDReasoner implements Reasoner {
             termIterator = termStore.iterator();
         }
 
+        float[] variableValues = termStore.getVariableValues();
         for (SGDObjectiveTerm term : IteratorUtils.newIterable(termIterator)) {
             objective += term.evaluate(variableValues);
         }
 
-        return objective / termStore.size();
+        return objective;
+    }
+
+    private float calculateAnnealedLearningRate(int iteration) {
+        switch (learningSchedule) {
+            case CONSTANT:
+                return initialLearningRate;
+            case STEPDECAY:
+                return initialLearningRate / ((float)Math.pow(iteration, learningRateInverseScaleExp));
+            default:
+                throw new IllegalArgumentException(String.format("Illegal value found for SGD learning schedule: '%s'", learningSchedule));
+        }
+    }
+
+    /**
+     * Update the random variables by taking a step in the direction of the negative gradient of the term.
+     */
+    private float variableUpdate(SGDObjectiveTerm term, VariableTermStore<SGDObjectiveTerm, GroundAtom> termStore,
+                                int iteration, float learningRate) {
+        if (!MathUtils.isZero(term.getDeterEpsilon())) {
+            return updateDeter(term, termStore);
+        }
+
+        float movement = 0.0f;
+        float variableStep = 0.0f;
+        float newValue = 0.0f;
+        float partial = 0.0f;
+
+        GroundAtom[] variableAtoms = termStore.getVariableAtoms();
+        float[] variableValues = termStore.getVariableValues();
+
+        int size = term.size();
+        WeightedRule rule = term.getRule();
+        int[] variableIndexes = term.getVariableIndexes();
+        float dot = term.dot(variableValues);
+
+        for (int i = 0 ; i < size; i++) {
+            if (variableAtoms[variableIndexes[i]] instanceof ObservedAtom) {
+                continue;
+            }
+
+            partial = term.computePartial(i, dot, rule.getWeight());
+            variableStep = computeVariableStep(variableIndexes[i], iteration, learningRate, partial);
+
+            newValue = Math.max(0.0f, Math.min(1.0f, variableValues[variableIndexes[i]] - variableStep));
+            movement += Math.abs(newValue - variableValues[variableIndexes[i]]);
+            variableValues[variableIndexes[i]] = newValue;
+
+            if (coordinateStep) {
+                dot = term.dot(variableValues);
+            }
+        }
+
+        return movement;
+    }
+
+    /**
+     * Compute the step for a single variable according SGD or one of it's extensions.
+     * For details on the math behind the SGD extensions see the corresponding papers listed below:
+     *  - AdaGrad: https://jmlr.org/papers/volume12/duchi11a/duchi11a.pdf
+     *  - Adam: https://arxiv.org/pdf/1412.6980.pdf
+     */
+    private float computeVariableStep(int variableIndex, int iteration, float learningRate, float partial) {
+        float step = 0.0f;
+        float adaptedLearningRate = 0.0f;
+
+        switch (sgdExtension) {
+            case NONE:
+                step = partial * learningRate;
+                break;
+            case ADAGRAD:
+                accumulatedGradientSquares = ArrayUtils.ensureCapacity(accumulatedGradientSquares, variableIndex);
+                accumulatedGradientSquares[variableIndex] = accumulatedGradientSquares[variableIndex] + partial * partial;
+
+                adaptedLearningRate = learningRate / (float)Math.sqrt(accumulatedGradientSquares[variableIndex] + EPSILON);
+                step = partial * adaptedLearningRate;
+                break;
+            case ADAM:
+                float biasedGradientMean = 0.0f;
+                float biasedGradientVariance = 0.0f;
+
+                accumulatedGradientMean = ArrayUtils.ensureCapacity(accumulatedGradientMean, variableIndex);
+                accumulatedGradientMean[variableIndex] = adamBeta1 * accumulatedGradientMean[variableIndex] + (1.0f - adamBeta1) * partial;
+
+                accumulatedGradientVariance = ArrayUtils.ensureCapacity(accumulatedGradientVariance, variableIndex);
+                accumulatedGradientVariance[variableIndex] = adamBeta2 * accumulatedGradientVariance[variableIndex] + (1.0f - adamBeta2) * partial * partial;
+
+                biasedGradientMean = accumulatedGradientMean[variableIndex] / (1.0f - (float)Math.pow(adamBeta1, iteration));
+                biasedGradientVariance = accumulatedGradientVariance[variableIndex] / (1.0f - (float)Math.pow(adamBeta2, iteration));
+                adaptedLearningRate = learningRate / ((float)Math.sqrt(biasedGradientVariance) + EPSILON);
+                step = biasedGradientMean * adaptedLearningRate;
+                break;
+            default:
+                throw new IllegalArgumentException(String.format("Unsupported SGD Extensions: '%s'", sgdExtension));
+        }
+
+        return step;
+    }
+
+    /**
+     * Update deter terms.
+     */
+    private float updateDeter(SGDObjectiveTerm term, VariableTermStore<SGDObjectiveTerm, GroundAtom> termStore) {
+        float[] variableValues = termStore.getVariableValues();
+        int[] variableIndexes = term.getVariableIndexes();
+        int size = term.size();
+
+        // TODO(eriq): This minimization is naive.
+        float deterValue = 1.0f / size;
+
+        // TODO(eriq): Better heuristic for checking the clustering.
+
+        // Check the average distance to the deter point.
+        float distance = 0.0f;
+        for (int i = 0; i < size; i++) {
+            distance += Math.abs(deterValue - variableValues[variableIndexes[i]]);
+        }
+        distance /= size;
+
+        // Do nothing if the points are not clustered around the deter point.
+        if (distance > term.getDeterEpsilon()) {
+            return 0.0f;
+        }
+
+        // Randomly choose a point to go towards 1.0, the rest go towards 0.0.
+        // TODO(eriq): There is a lot that can be done to choose points more intelligently.
+        //  Maybe weight by truth value, for example.
+        int upPoint = RandUtils.nextInt(size);
+
+        float movement = 0.0f;
+        for (int i = 0; i < size; i++) {
+            float newValue = ((i == upPoint) ? 1.0f : 0.0f);
+            movement += Math.abs(newValue - variableValues[variableIndexes[i]]);
+            variableValues[variableIndexes[i]] = newValue;
+        }
+
+        return movement;
     }
 
     @Override

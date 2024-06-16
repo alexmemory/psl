@@ -1,7 +1,7 @@
 /*
  * This file is part of the PSL software.
  * Copyright 2011-2015 University of Maryland
- * Copyright 2013-2019 The Regents of the University of California
+ * Copyright 2013-2022 The Regents of the University of California
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -17,16 +17,14 @@
  */
 package org.linqs.psl.application.learning.weight.search.grid;
 
-import org.linqs.psl.config.Config;
+import org.linqs.psl.config.Options;
 import org.linqs.psl.database.Database;
 import org.linqs.psl.model.Model;
 import org.linqs.psl.model.rule.Rule;
 import org.linqs.psl.util.IteratorUtils;
+import org.linqs.psl.util.Logger;
 import org.linqs.psl.util.MathUtils;
 import org.linqs.psl.util.StringUtils;
-
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
 
 import java.util.Iterator;
 import java.util.List;
@@ -35,18 +33,7 @@ import java.util.List;
  * A grid seach-like method that searchs over the possible rankings of rules.
  */
 public class RankSearch extends BaseGridSearch {
-    private static final Logger log = LoggerFactory.getLogger(RankSearch.class);
-
-    /**
-     * Prefix of property keys used by this class.
-     */
-    public static final String CONFIG_PREFIX = "ranksearch";
-
-    /**
-     * A comma-separated list of scaling factors.
-     */
-    public static final String SCALING_FACTORS_KEY = CONFIG_PREFIX + ".scalingfactors";
-    public static final String SCALING_FACTORS_DEFAULT = "1:2:10:100";
+    private static final Logger log = Logger.getLogger(RankSearch.class);
 
     /**
      * The delimiter to separate rule weights (and lication ids).
@@ -67,7 +54,7 @@ public class RankSearch extends BaseGridSearch {
     public RankSearch(List<Rule> rules, Database rvDB, Database observedDB) {
         super(rules, rvDB, observedDB);
 
-        scaleFactors = StringUtils.splitInt(Config.getString(SCALING_FACTORS_KEY, SCALING_FACTORS_DEFAULT), DELIM);
+        scaleFactors = StringUtils.splitInt(Options.WLA_RS_SCALING_FACTORS.getString(), DELIM);
         if (scaleFactors.length == 0) {
             throw new IllegalArgumentException("No scaling factors provided.");
         }
@@ -80,7 +67,7 @@ public class RankSearch extends BaseGridSearch {
     }
 
     @Override
-    protected void getWeights(double[] weights) {
+    protected void getWeights(float[] weights) {
         int[] ranks = StringUtils.splitInt(currentLocation, DELIM);
         assert(ranks.length == (mutableRules.size() + 1));
 
@@ -88,7 +75,7 @@ public class RankSearch extends BaseGridSearch {
 
         for (int i = 0; i < mutableRules.size(); i++) {
             // Add one because the permutation iterator starts at 0.
-            weights[i] = scale * (1.0 + ranks[i + 1]);
+            weights[i] = scale * (1.0f + ranks[i + 1]);
         }
     }
 

@@ -1,7 +1,7 @@
 /*
  * This file is part of the PSL software.
  * Copyright 2011-2015 University of Maryland
- * Copyright 2013-2019 The Regents of the University of California
+ * Copyright 2013-2022 The Regents of the University of California
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -29,6 +29,7 @@ import org.linqs.psl.reasoner.function.FunctionComparator;
 import org.linqs.psl.util.HashCode;
 import org.linqs.psl.util.MathUtils;
 
+import java.io.Serializable;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.HashMap;
@@ -42,7 +43,7 @@ import java.util.Set;
  *
  * Full equality checks (when two expressions are the equal, but not the same refernce) are epensive.
  */
-public class ArithmeticRuleExpression {
+public class ArithmeticRuleExpression implements Serializable {
     protected final List<Coefficient> coefficients;
     protected final List<SummationAtomOrAtom> atoms;
     protected final FunctionComparator comparator;
@@ -171,6 +172,29 @@ public class ArithmeticRuleExpression {
         return summationMapping;
     }
 
+    /**
+     * Returns true if this expression looks like a functional constraint.
+     * A functional constraint takes a form like: Foo(A, +B) = 1.0
+     *
+     * The following properties will be checked:
+     *  - Expression uses equals.
+     *  - Expression has only a single summation atom with 1.0 coefficient.
+     *  - Expression's RHS (final constant) is 1.0.
+     */
+    public boolean looksLikeFunctionalConstraint() {
+        return FunctionComparator.EQ.equals(comparator)
+                && atoms.size() == 1
+                && atoms.get(0) instanceof SummationAtom
+                && coefficients.size() == 1
+                && coefficients.get(0) instanceof ConstantNumber
+                && MathUtils.equals(1.0f, coefficients.get(0).getValue(null))
+                && constant instanceof ConstantNumber
+                && MathUtils.equals(1.0f, constant.getValue(null));
+    }
+
+    /**
+     * Return true if this expression has all the traits of a negative prior.
+     */
     public boolean looksLikeNegativePrior() {
         return summationMapping.size() == 0
                 && atoms.size() == 1
@@ -244,11 +268,15 @@ public class ArithmeticRuleExpression {
             return false;
         }
 
-        if (this.comparator != otherExpression.comparator || this.constant != otherExpression.constant) {
+        if (this.comparator != otherExpression.comparator) {
             return false;
         }
 
         if (this.atoms.size() != otherExpression.atoms.size()) {
+            return false;
+        }
+
+        if (!this.constant.equals(otherExpression.constant)) {
             return false;
         }
 

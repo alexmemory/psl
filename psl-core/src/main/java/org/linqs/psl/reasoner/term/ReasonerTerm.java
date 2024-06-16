@@ -1,7 +1,7 @@
 /*
  * This file is part of the PSL software.
  * Copyright 2011-2015 University of Maryland
- * Copyright 2013-2019 The Regents of the University of California
+ * Copyright 2013-2022 The Regents of the University of California
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -18,5 +18,20 @@
 package org.linqs.psl.reasoner.term;
 
 public interface ReasonerTerm {
+    /**
+     * The number of variables this term uses.
+     */
     public int size();
+
+    /**
+     * Adjust the term's internal constant by removing the old value and inserting the new value.
+     * This is typically because an observed variable's value has changed.
+     */
+    public void adjustConstant(float oldValue, float newValue);
+
+    /*
+     * Whether this term is convex.
+     * Reasoners may treat non-convex terms differently.
+     */
+    public boolean isConvex();
 }

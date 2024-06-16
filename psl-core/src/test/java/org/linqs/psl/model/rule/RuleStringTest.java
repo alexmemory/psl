@@ -1,7 +1,7 @@
 /*
  * This file is part of the PSL software.
  * Copyright 2011-2015 University of Maryland
- * Copyright 2013-2019 The Regents of the University of California
+ * Copyright 2013-2022 The Regents of the University of California
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -17,13 +17,6 @@
  */
 package org.linqs.psl.model.rule;
 
-import static org.junit.Assert.assertEquals;
-import static org.junit.Assert.fail;
-
-import org.junit.After;
-import org.junit.Before;
-import org.junit.Test;
-import org.linqs.psl.PSLTest;
 import org.linqs.psl.database.DataStore;
 import org.linqs.psl.database.Database;
 import org.linqs.psl.database.Partition;
@@ -61,6 +54,11 @@ import org.linqs.psl.model.term.UniqueIntID;
 import org.linqs.psl.model.term.UniqueStringID;
 import org.linqs.psl.model.term.Variable;
 import org.linqs.psl.reasoner.function.FunctionComparator;
+import org.linqs.psl.test.PSLBaseTest;
+
+import org.junit.After;
+import org.junit.Before;
+import org.junit.Test;
 
 import java.util.ArrayList;
 import java.util.Arrays;
@@ -69,10 +67,11 @@ import java.util.HashSet;
 import java.util.List;
 import java.util.Set;
 
-public class RuleStringTest {
+public class RuleStringTest extends PSLBaseTest {
     private DataStore dataStore;
     private Database database;
     private Partition obsPartition;
+    private Partition targetPartition;
 
     private StandardPredicate singlePredicate;
     private StandardPredicate singleIntPredicate;
@@ -109,26 +108,35 @@ public class RuleStringTest {
 
         List<Coefficient> coefficients = Arrays.asList(
             (Coefficient)(new ConstantNumber(1)),
+            (Coefficient)(new ConstantNumber(1)),
             (Coefficient)(new ConstantNumber(1))
         );
 
         List<SummationAtomOrAtom> atoms = Arrays.asList(
             (SummationAtomOrAtom)(new QueryAtom(singlePredicate, new Variable("A"))),
-            (SummationAtomOrAtom)(new QueryAtom(singlePredicate, new Variable("B")))
+            (SummationAtomOrAtom)(new QueryAtom(singlePredicate, new Variable("B"))),
+            (SummationAtomOrAtom)(new QueryAtom(doublePredicate, new Variable("A"), new Variable("B")))
         );
 
-        // Base Rule: SinglePredicate(A) + SinglePredicate(B) = 1
+        // Base Rule: SinglePredicate(A) + SinglePredicate(B) + DoublePredicate(A, B) = 1
         arithmeticBaseRule = new ArithmeticRuleExpression(coefficients, atoms, FunctionComparator.EQ, new ConstantNumber(1));
 
         // Data
         obsPartition = dataStore.getNewPartition();
+        targetPartition = dataStore.getNewPartition();
 
         Inserter inserter = dataStore.getInserter(singlePredicate, obsPartition);
         inserter.insert(new UniqueStringID("Alice"));
         inserter.insert(new UniqueStringID("Bob"));
 
+        inserter = dataStore.getInserter(doublePredicate, targetPartition);
+        inserter.insert(new UniqueStringID("Alice"), new UniqueStringID("Alice"));
+        inserter.insert(new UniqueStringID("Alice"), new UniqueStringID("Bob"));
+        inserter.insert(new UniqueStringID("Bob"), new UniqueStringID("Alice"));
+        inserter.insert(new UniqueStringID("Bob"), new UniqueStringID("Bob"));
+
         Set<StandardPredicate> toClose = new HashSet<StandardPredicate>();
-        database = dataStore.getDatabase(dataStore.getNewPartition(), toClose, obsPartition);
+        database = dataStore.getDatabase(targetPartition, toClose, obsPartition);
     }
 
     @Test
@@ -141,11 +149,11 @@ public class RuleStringTest {
         assertEquals("( SINGLEPREDICATE(A) & SINGLEPREDICATE(B) ) >> DOUBLEPREDICATE(A, B) .", rule.toString());
 
         // Weighted, Squared
-        rule = new WeightedLogicalRule(logicalBaseRule, 10.0, true);
+        rule = new WeightedLogicalRule(logicalBaseRule, 10.0f, true);
         assertEquals("10.0: ( SINGLEPREDICATE(A) & SINGLEPREDICATE(B) ) >> DOUBLEPREDICATE(A, B) ^2", rule.toString());
 
         // Weighted, Not Squared
-        rule = new WeightedLogicalRule(logicalBaseRule, 10.0, false);
+        rule = new WeightedLogicalRule(logicalBaseRule, 10.0f, false);
         assertEquals("10.0: ( SINGLEPREDICATE(A) & SINGLEPREDICATE(B) ) >> DOUBLEPREDICATE(A, B)", rule.toString());
     }
 
@@ -156,15 +164,15 @@ public class RuleStringTest {
 
         // Unweighted (Not Squared)
         rule = new UnweightedArithmeticRule(arithmeticBaseRule);
-        assertEquals("1.0 * SINGLEPREDICATE(A) + 1.0 * SINGLEPREDICATE(B) = 1.0 .", rule.toString());
+        assertEquals("1.0 * SINGLEPREDICATE(A) + 1.0 * SINGLEPREDICATE(B) + 1.0 * DOUBLEPREDICATE(A, B) = 1.0 .", rule.toString());
 
         // Weighted, Squared
-        rule = new WeightedArithmeticRule(arithmeticBaseRule, 10.0, true);
-        assertEquals("10.0: 1.0 * SINGLEPREDICATE(A) + 1.0 * SINGLEPREDICATE(B) = 1.0 ^2", rule.toString());
+        rule = new WeightedArithmeticRule(arithmeticBaseRule, 10.0f, true);
+        assertEquals("10.0: 1.0 * SINGLEPREDICATE(A) + 1.0 * SINGLEPREDICATE(B) + 1.0 * DOUBLEPREDICATE(A, B) = 1.0 ^2", rule.toString());
 
         // Weighted, Not Squared
-        rule = new WeightedArithmeticRule(arithmeticBaseRule, 10.0, false);
-        assertEquals("10.0: 1.0 * SINGLEPREDICATE(A) + 1.0 * SINGLEPREDICATE(B) = 1.0", rule.toString());
+        rule = new WeightedArithmeticRule(arithmeticBaseRule, 10.0f, false);
+        assertEquals("10.0: 1.0 * SINGLEPREDICATE(A) + 1.0 * SINGLEPREDICATE(B) + 1.0 * DOUBLEPREDICATE(A, B) = 1.0", rule.toString());
     }
 
     @Test
@@ -185,10 +193,10 @@ public class RuleStringTest {
             "( ~( SINGLEPREDICATE('Bob') ) | ~( SINGLEPREDICATE('Bob') ) | DOUBLEPREDICATE('Bob', 'Bob') ) ."
         );
         rule.groundAll(manager, store);
-        PSLTest.compareGroundRules(expected, rule, store);
+        compareGroundRules(expected, rule, store);
 
         // Weighted, Squared
-        rule = new WeightedLogicalRule(logicalBaseRule, 10.0, true);
+        rule = new WeightedLogicalRule(logicalBaseRule, 10.0f, true);
         expected = Arrays.asList(
             "10.0: ( ~( SINGLEPREDICATE('Alice') ) | ~( SINGLEPREDICATE('Alice') ) | DOUBLEPREDICATE('Alice', 'Alice') ) ^2",
             "10.0: ( ~( SINGLEPREDICATE('Alice') ) | ~( SINGLEPREDICATE('Bob') ) | DOUBLEPREDICATE('Alice', 'Bob') ) ^2",
@@ -196,10 +204,10 @@ public class RuleStringTest {
             "10.0: ( ~( SINGLEPREDICATE('Bob') ) | ~( SINGLEPREDICATE('Bob') ) | DOUBLEPREDICATE('Bob', 'Bob') ) ^2"
         );
         rule.groundAll(manager, store);
-        PSLTest.compareGroundRules(expected, rule, store);
+        compareGroundRules(expected, rule, store);
 
         // Weighted, Not Squared
-        rule = new WeightedLogicalRule(logicalBaseRule, 10.0, false);
+        rule = new WeightedLogicalRule(logicalBaseRule, 10.0f, false);
         expected = Arrays.asList(
             "10.0: ( ~( SINGLEPREDICATE('Alice') ) | ~( SINGLEPREDICATE('Alice') ) | DOUBLEPREDICATE('Alice', 'Alice') )",
             "10.0: ( ~( SINGLEPREDICATE('Alice') ) | ~( SINGLEPREDICATE('Bob') ) | DOUBLEPREDICATE('Alice', 'Bob') )",
@@ -207,7 +215,7 @@ public class RuleStringTest {
             "10.0: ( ~( SINGLEPREDICATE('Bob') ) | ~( SINGLEPREDICATE('Bob') ) | DOUBLEPREDICATE('Bob', 'Bob') )"
         );
         rule.groundAll(manager, store);
-        PSLTest.compareGroundRules(expected, rule, store);
+        compareGroundRules(expected, rule, store);
     }
 
     @Test
@@ -221,43 +229,43 @@ public class RuleStringTest {
         // Unweighted (Not Squared)
         rule = new UnweightedArithmeticRule(arithmeticBaseRule);
         expected = Arrays.asList(
-            "1.0 * SINGLEPREDICATE('Alice') + 1.0 * SINGLEPREDICATE('Alice') = 1.0 .",
-            "1.0 * SINGLEPREDICATE('Alice') + 1.0 * SINGLEPREDICATE('Bob') = 1.0 .",
-            "1.0 * SINGLEPREDICATE('Bob') + 1.0 * SINGLEPREDICATE('Alice') = 1.0 .",
-            "1.0 * SINGLEPREDICATE('Bob') + 1.0 * SINGLEPREDICATE('Bob') = 1.0 ."
+            "1.0 * SINGLEPREDICATE('Alice') + 1.0 * SINGLEPREDICATE('Alice') + 1.0 * DOUBLEPREDICATE('Alice', 'Alice') = 1.0 .",
+            "1.0 * SINGLEPREDICATE('Alice') + 1.0 * SINGLEPREDICATE('Bob') + 1.0 * DOUBLEPREDICATE('Alice', 'Bob') = 1.0 .",
+            "1.0 * SINGLEPREDICATE('Bob') + 1.0 * SINGLEPREDICATE('Alice') + 1.0 * DOUBLEPREDICATE('Bob', 'Alice') = 1.0 .",
+            "1.0 * SINGLEPREDICATE('Bob') + 1.0 * SINGLEPREDICATE('Bob') + 1.0 * DOUBLEPREDICATE('Bob', 'Bob') = 1.0 ."
         );
         rule.groundAll(manager, store);
-        PSLTest.compareGroundRules(expected, rule, store);
+        compareGroundRules(expected, rule, store);
 
         // Weighted, Squared
-        rule = new WeightedArithmeticRule(arithmeticBaseRule, 10.0, true);
+        rule = new WeightedArithmeticRule(arithmeticBaseRule, 10.0f, true);
         expected = Arrays.asList(
-            "10.0: 1.0 * SINGLEPREDICATE('Alice') + 1.0 * SINGLEPREDICATE('Alice') <= 1.0 ^2",
-            "10.0: 1.0 * SINGLEPREDICATE('Alice') + 1.0 * SINGLEPREDICATE('Alice') >= 1.0 ^2",
-            "10.0: 1.0 * SINGLEPREDICATE('Alice') + 1.0 * SINGLEPREDICATE('Bob') <= 1.0 ^2",
-            "10.0: 1.0 * SINGLEPREDICATE('Alice') + 1.0 * SINGLEPREDICATE('Bob') >= 1.0 ^2",
-            "10.0: 1.0 * SINGLEPREDICATE('Bob') + 1.0 * SINGLEPREDICATE('Alice') <= 1.0 ^2",
-            "10.0: 1.0 * SINGLEPREDICATE('Bob') + 1.0 * SINGLEPREDICATE('Alice') >= 1.0 ^2",
-            "10.0: 1.0 * SINGLEPREDICATE('Bob') + 1.0 * SINGLEPREDICATE('Bob') <= 1.0 ^2",
-            "10.0: 1.0 * SINGLEPREDICATE('Bob') + 1.0 * SINGLEPREDICATE('Bob') >= 1.0 ^2"
+            "10.0: 1.0 * SINGLEPREDICATE('Alice') + 1.0 * SINGLEPREDICATE('Alice') + 1.0 * DOUBLEPREDICATE('Alice', 'Alice') <= 1.0 ^2",
+            "10.0: 1.0 * SINGLEPREDICATE('Alice') + 1.0 * SINGLEPREDICATE('Alice') + 1.0 * DOUBLEPREDICATE('Alice', 'Alice') >= 1.0 ^2",
+            "10.0: 1.0 * SINGLEPREDICATE('Alice') + 1.0 * SINGLEPREDICATE('Bob') + 1.0 * DOUBLEPREDICATE('Alice', 'Bob') <= 1.0 ^2",
+            "10.0: 1.0 * SINGLEPREDICATE('Alice') + 1.0 * SINGLEPREDICATE('Bob') + 1.0 * DOUBLEPREDICATE('Alice', 'Bob') >= 1.0 ^2",
+            "10.0: 1.0 * SINGLEPREDICATE('Bob') + 1.0 * SINGLEPREDICATE('Alice') + 1.0 * DOUBLEPREDICATE('Bob', 'Alice') <= 1.0 ^2",
+            "10.0: 1.0 * SINGLEPREDICATE('Bob') + 1.0 * SINGLEPREDICATE('Alice') + 1.0 * DOUBLEPREDICATE('Bob', 'Alice') >= 1.0 ^2",
+            "10.0: 1.0 * SINGLEPREDICATE('Bob') + 1.0 * SINGLEPREDICATE('Bob') + 1.0 * DOUBLEPREDICATE('Bob', 'Bob') <= 1.0 ^2",
+            "10.0: 1.0 * SINGLEPREDICATE('Bob') + 1.0 * SINGLEPREDICATE('Bob') + 1.0 * DOUBLEPREDICATE('Bob', 'Bob') >= 1.0 ^2"
         );
         rule.groundAll(manager, store);
-        PSLTest.compareGroundRules(expected, rule, store);
+        compareGroundRules(expected, rule, store);
 
         // Weighted, Not Squared
-        rule = new WeightedArithmeticRule(arithmeticBaseRule, 10.0, false);
+        rule = new WeightedArithmeticRule(arithmeticBaseRule, 10.0f, false);
         expected = Arrays.asList(
-            "10.0: 1.0 * SINGLEPREDICATE('Alice') + 1.0 * SINGLEPREDICATE('Alice') <= 1.0",
-            "10.0: 1.0 * SINGLEPREDICATE('Alice') + 1.0 * SINGLEPREDICATE('Alice') >= 1.0",
-            "10.0: 1.0 * SINGLEPREDICATE('Alice') + 1.0 * SINGLEPREDICATE('Bob') <= 1.0",
-            "10.0: 1.0 * SINGLEPREDICATE('Alice') + 1.0 * SINGLEPREDICATE('Bob') >= 1.0",
-            "10.0: 1.0 * SINGLEPREDICATE('Bob') + 1.0 * SINGLEPREDICATE('Alice') <= 1.0",
-            "10.0: 1.0 * SINGLEPREDICATE('Bob') + 1.0 * SINGLEPREDICATE('Alice') >= 1.0",
-            "10.0: 1.0 * SINGLEPREDICATE('Bob') + 1.0 * SINGLEPREDICATE('Bob') <= 1.0",
-            "10.0: 1.0 * SINGLEPREDICATE('Bob') + 1.0 * SINGLEPREDICATE('Bob') >= 1.0"
+            "10.0: 1.0 * SINGLEPREDICATE('Alice') + 1.0 * SINGLEPREDICATE('Alice') + 1.0 * DOUBLEPREDICATE('Alice', 'Alice') <= 1.0",
+            "10.0: 1.0 * SINGLEPREDICATE('Alice') + 1.0 * SINGLEPREDICATE('Alice') + 1.0 * DOUBLEPREDICATE('Alice', 'Alice') >= 1.0",
+            "10.0: 1.0 * SINGLEPREDICATE('Alice') + 1.0 * SINGLEPREDICATE('Bob') + 1.0 * DOUBLEPREDICATE('Alice', 'Bob') <= 1.0",
+            "10.0: 1.0 * SINGLEPREDICATE('Alice') + 1.0 * SINGLEPREDICATE('Bob') + 1.0 * DOUBLEPREDICATE('Alice', 'Bob') >= 1.0",
+            "10.0: 1.0 * SINGLEPREDICATE('Bob') + 1.0 * SINGLEPREDICATE('Alice') + 1.0 * DOUBLEPREDICATE('Bob', 'Alice') <= 1.0",
+            "10.0: 1.0 * SINGLEPREDICATE('Bob') + 1.0 * SINGLEPREDICATE('Alice') + 1.0 * DOUBLEPREDICATE('Bob', 'Alice') >= 1.0",
+            "10.0: 1.0 * SINGLEPREDICATE('Bob') + 1.0 * SINGLEPREDICATE('Bob') + 1.0 * DOUBLEPREDICATE('Bob', 'Bob') <= 1.0",
+            "10.0: 1.0 * SINGLEPREDICATE('Bob') + 1.0 * SINGLEPREDICATE('Bob') + 1.0 * DOUBLEPREDICATE('Bob', 'Bob') >= 1.0"
         );
         rule.groundAll(manager, store);
-        PSLTest.compareGroundRules(expected, rule, store);
+        compareGroundRules(expected, rule, store);
     }
 
     @Test
@@ -279,11 +287,11 @@ public class RuleStringTest {
         assertEquals("( SINGLEINTPREDICATE('1') & SINGLEPREDICATE(A) & SINGLEPREDICATE(B) ) >> DOUBLEPREDICATE(A, B) .", rule.toString());
 
         // Weighted, Squared
-        rule = new WeightedLogicalRule(baseRule, 10.0, true);
+        rule = new WeightedLogicalRule(baseRule, 10.0f, true);
         assertEquals("10.0: ( SINGLEINTPREDICATE('1') & SINGLEPREDICATE(A) & SINGLEPREDICATE(B) ) >> DOUBLEPREDICATE(A, B) ^2", rule.toString());
 
         // Weighted, Not Squared
-        rule = new WeightedLogicalRule(baseRule, 10.0, false);
+        rule = new WeightedLogicalRule(baseRule, 10.0f, false);
         assertEquals("10.0: ( SINGLEINTPREDICATE('1') & SINGLEPREDICATE(A) & SINGLEPREDICATE(B) ) >> DOUBLEPREDICATE(A, B)", rule.toString());
     }
 

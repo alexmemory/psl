@@ -1,7 +1,7 @@
 /*
  * This file is part of the PSL software.
  * Copyright 2011-2015 University of Maryland
- * Copyright 2013-2019 The Regents of the University of California
+ * Copyright 2013-2022 The Regents of the University of California
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -17,7 +17,6 @@
  */
 package org.linqs.psl.model.atom;
 
-import org.linqs.psl.database.Database;
 import org.linqs.psl.model.predicate.Predicate;
 import org.linqs.psl.model.term.Constant;
 
@@ -35,10 +34,19 @@ import org.linqs.psl.model.term.Constant;
  */
 public class ObservedAtom extends GroundAtom {
     /**
-     * Instantiation of GrondAtoms should typically be left to the Database so it can maintain a cache.
+     * Instantiation of GroundAtoms should typically be left to the Database so it can maintain a cache.
      */
     public ObservedAtom(Predicate predicate, Constant[] args, float value) {
         super(predicate, args, value);
+    }
+
+    /**
+     * This method should only be used in VERY specific situations and with a considerable amount of preparation.
+     * This method sets the truth value of the atom.
+     * However, in most circumstances observed atoms have a fixed value.
+     */
+    public void _assumeValue(float newValue) {
+        value = newValue;
     }
 
     @Override

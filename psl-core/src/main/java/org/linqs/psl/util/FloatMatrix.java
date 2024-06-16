@@ -1,7 +1,7 @@
 /*
  * This file is part of the PSL software.
  * Copyright 2011-2015 University of Maryland
- * Copyright 2013-2019 The Regents of the University of California
+ * Copyright 2013-2022 The Regents of the University of California
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -16,6 +16,8 @@
  * limitations under the License.
  */
 package org.linqs.psl.util;
+
+import org.linqs.psl.util.HashCode;
 
 import com.github.fommil.netlib.BLAS;
 import com.github.fommil.netlib.LAPACK;
@@ -244,6 +246,11 @@ public final class FloatMatrix {
 
     public int numCols() {
         return numCols;
+    }
+
+    @Override
+    public int hashCode() {
+        return HashCode.build(HashCode.build(numRows), numCols);
     }
 
     @Override

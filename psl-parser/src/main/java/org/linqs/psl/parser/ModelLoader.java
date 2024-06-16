@@ -1,7 +1,7 @@
 /*
  * This file is part of the PSL software.
  * Copyright 2011-2015 University of Maryland
- * Copyright 2013-2019 The Regents of the University of California
+ * Copyright 2013-2022 The Regents of the University of California
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -17,7 +17,6 @@
  */
 package org.linqs.psl.parser;
 
-import org.linqs.psl.database.DataStore;
 import org.linqs.psl.model.Model;
 import org.linqs.psl.model.atom.Atom;
 import org.linqs.psl.model.atom.QueryAtom;
@@ -55,6 +54,7 @@ import org.linqs.psl.parser.antlr.PSLBaseVisitor;
 import org.linqs.psl.parser.antlr.PSLLexer;
 import org.linqs.psl.parser.antlr.PSLParser;
 import org.linqs.psl.parser.antlr.PSLParser.ArithmeticRuleExpressionContext;
+import org.linqs.psl.parser.antlr.PSLParser.ArithmeticCoefficientOperandAtomContext;
 import org.linqs.psl.parser.antlr.PSLParser.ArithmeticCoefficientOperandContext;
 import org.linqs.psl.parser.antlr.PSLParser.ArithmeticRuleRelationContext;
 import org.linqs.psl.parser.antlr.PSLParser.AtomContext;
@@ -103,15 +103,12 @@ import org.antlr.v4.runtime.CommonToken;
 import org.antlr.v4.runtime.CommonTokenStream;
 import org.antlr.v4.runtime.RecognitionException;
 import org.antlr.v4.runtime.Recognizer;
-import org.antlr.v4.runtime.atn.ParserATNSimulator;
-import org.antlr.v4.runtime.atn.PredictionContextCache;
 import org.antlr.v4.runtime.misc.Interval;
 import org.antlr.v4.runtime.misc.ParseCancellationException;
 
 import java.io.Reader;
 import java.io.IOException;
 import java.io.StringReader;
-import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.LinkedList;
 import java.util.List;
@@ -121,7 +118,7 @@ public class ModelLoader extends PSLBaseVisitor<Object> {
     /**
      * Parse a string into either a full PSL Rule or a rule without weight or potential squaring information.
      */
-    public static RulePartial loadRulePartial(DataStore data, String input) {
+    public static RulePartial loadRulePartial(String input) {
         PSLParser parser = null;
         try {
             parser = getParser(input);
@@ -138,7 +135,7 @@ public class ModelLoader extends PSLBaseVisitor<Object> {
             throw (RuntimeException)ex.getCause();
         }
 
-        ModelLoader visitor = new ModelLoader(data);
+        ModelLoader visitor = new ModelLoader();
         return visitor.visitPslRulePartial(context);
     }
 
@@ -146,8 +143,8 @@ public class ModelLoader extends PSLBaseVisitor<Object> {
      * Parse and return a single rule.
      * If exactly one rule is not specified, an exception is thrown.
      */
-    public static Rule loadRule(DataStore data, String input) {
-        Model model = load(data, new StringReader(input));
+    public static Rule loadRule(String input) {
+        Model model = load(new StringReader(input));
 
         int ruleCount = 0;
         Rule targetRule = null;
@@ -169,8 +166,8 @@ public class ModelLoader extends PSLBaseVisitor<Object> {
     /**
      * Convenience interface to load().
      */
-    public static Model load(DataStore data, String input) {
-        return load(data, new StringReader(input));
+    public static Model load(String input) {
+        return load(new StringReader(input));
     }
 
     /**
@@ -178,7 +175,7 @@ public class ModelLoader extends PSLBaseVisitor<Object> {
      * The input should only contain rules and the DataStore should contain all the predicates
      * used by the rules.
      */
-    public static Model load(DataStore data, Reader input) {
+    public static Model load(Reader input) {
         PSLParser parser = null;
         try {
             parser = getParser(input);
@@ -195,8 +192,33 @@ public class ModelLoader extends PSLBaseVisitor<Object> {
             throw (RuntimeException)ex.getCause();
         }
 
-        ModelLoader visitor = new ModelLoader(data);
+        ModelLoader visitor = new ModelLoader();
         return visitor.visitProgram(program, parser);
+    }
+
+    public static Atom loadAtom(String input) {
+        return loadAtom(new StringReader(input));
+    }
+
+    public static Atom loadAtom(Reader input) {
+        PSLParser parser = null;
+        try {
+            parser = getParser(input);
+        } catch (IOException ex) {
+            // Cancel the lex and rethrow.
+            throw new RuntimeException("Failed to lex atom.", ex);
+        }
+
+        AtomContext atomContext = null;
+        try {
+            atomContext = parser.atom();
+        } catch (ParseCancellationException ex) {
+            // Cancel the parse and rethrow the cause.
+            throw (RuntimeException)ex.getCause();
+        }
+
+        ModelLoader visitor = new ModelLoader();
+        return visitor.visitAtom(atomContext);
     }
 
     /**
@@ -232,11 +254,7 @@ public class ModelLoader extends PSLBaseVisitor<Object> {
 
     // Non-static
 
-    private final DataStore data;
-
-    private ModelLoader(DataStore data) {
-        this.data = data;
-    }
+    private ModelLoader() {}
 
     public Model visitProgram(ProgramContext ctx, PSLParser parser) {
         Model model = new Model();
@@ -284,7 +302,7 @@ public class ModelLoader extends PSLBaseVisitor<Object> {
 
     @Override
     public WeightedLogicalRule visitWeightedLogicalRule(WeightedLogicalRuleContext ctx) {
-        Double w = visitWeightExpression(ctx.weightExpression());
+        Float w = visitWeightExpression(ctx.weightExpression());
         Formula f = visitLogicalRuleExpression(ctx.logicalRuleExpression());
         Boolean sq = false;
         if (ctx.EXPONENT_EXPRESSION() != null) {
@@ -387,7 +405,7 @@ public class ModelLoader extends PSLBaseVisitor<Object> {
 
     @Override
     public WeightedArithmeticRule visitWeightedArithmeticRule(WeightedArithmeticRuleContext ctx) {
-        Double w = visitWeightExpression(ctx.weightExpression());
+        Float w = visitWeightExpression(ctx.weightExpression());
         ArithmeticRuleExpression expression = (ArithmeticRuleExpression) visitArithmeticRuleExpression(ctx.arithmeticRuleExpression());
         Map<SummationVariable, Formula> filterClauses = new HashMap<SummationVariable, Formula>();
         for (int i = 0; i < ctx.filterClause().size(); i++) {
@@ -485,7 +503,7 @@ public class ModelLoader extends PSLBaseVisitor<Object> {
             expression.coefficients.add(coefficient);
         }
 
-        // No the additional, non-atom coefficients.
+        // Note the additional, non-atom coefficients.
         Coefficient nonAtomCoefficient = null;
         if (lhs.nonAtomCoefficient != null) {
             nonAtomCoefficient = lhs.nonAtomCoefficient;
@@ -493,7 +511,11 @@ public class ModelLoader extends PSLBaseVisitor<Object> {
 
         if (rhs.nonAtomCoefficient != null) {
             if (nonAtomCoefficient == null) {
-                nonAtomCoefficient = rhs.nonAtomCoefficient;
+                if (isAddition) {
+                    nonAtomCoefficient = rhs.nonAtomCoefficient;
+                } else {
+                    nonAtomCoefficient = new Multiply(new ConstantNumber(-1.0f), rhs.nonAtomCoefficient);
+                }
             } else {
                 if (isAddition) {
                     nonAtomCoefficient = new Add(nonAtomCoefficient, rhs.nonAtomCoefficient);
@@ -574,6 +596,16 @@ public class ModelLoader extends PSLBaseVisitor<Object> {
     }
 
     @Override
+    public SummationAtomOrAtom visitArithmeticCoefficientOperandAtom(ArithmeticCoefficientOperandAtomContext ctx) {
+        // Must be a parenthesis expression.
+        if (ctx.getChildCount() == 3) {
+            return visitArithmeticCoefficientOperandAtom((ArithmeticCoefficientOperandAtomContext)ctx.getChild(1));
+        }
+
+        return (SummationAtomOrAtom)visit(ctx.getChild(0));
+    }
+
+    @Override
     public SummationAtomOrAtom visitSummationAtom(SummationAtomContext ctx) {
         Predicate predicate = visitPredicate(ctx.predicate());
 
@@ -589,7 +621,7 @@ public class ModelLoader extends PSLBaseVisitor<Object> {
             }
         }
 
-        // If we have any summation variables, then we have a SummationAtom, otherwise we have a QueryAtom.
+        // If we have any summation variables, then we have a SummationAtom, otherwise we have a GetAtom.
         boolean isSummation = false;
         for (SummationVariableOrTerm arg : args) {
             if (arg instanceof SummationVariable) {
@@ -774,8 +806,8 @@ public class ModelLoader extends PSLBaseVisitor<Object> {
     }
 
     @Override
-    public Double visitWeightExpression(WeightExpressionContext ctx) {
-        return Double.parseDouble(ctx.number().getText());
+    public Float visitWeightExpression(WeightExpressionContext ctx) {
+        return Float.parseFloat(ctx.number().getText());
     }
 
     @Override
@@ -787,24 +819,19 @@ public class ModelLoader extends PSLBaseVisitor<Object> {
                 args[i] = (Term) visit(ctx.term(i));
             }
             return new QueryAtom(predicate, args);
-        }
-        else if (ctx.termOperator() != null) {
+        } else if (ctx.termOperator() != null) {
             GroundingOnlyPredicate predicate;
             if (ctx.termOperator().notEqual() != null) {
                 predicate = GroundingOnlyPredicate.NotEqual;
-            }
-            else if (ctx.termOperator().termEqual() != null) {
+            } else if (ctx.termOperator().termEqual() != null) {
                 predicate = GroundingOnlyPredicate.Equal;
-            }
-            else if (ctx.termOperator().nonSymmetric() != null) {
+            } else if (ctx.termOperator().nonSymmetric() != null) {
                 predicate = GroundingOnlyPredicate.NonSymmetric;
-            }
-            else {
+            } else {
                 throw new IllegalStateException();
             }
-            return new QueryAtom(predicate, (Term) visit(ctx.term(0)), (Term) visit(ctx.term(1)));
-        }
-        else {
+            return new QueryAtom(predicate, (Term)visit(ctx.term(0)), (Term)visit(ctx.term(1)));
+        } else {
             throw new IllegalStateException();
         }
     }
@@ -855,8 +882,8 @@ public class ModelLoader extends PSLBaseVisitor<Object> {
     }
 
     @Override
-    public Double visitNumber(NumberContext ctx) {
-        return Double.parseDouble(ctx.getText());
+    public Float visitNumber(NumberContext ctx) {
+        return Float.parseFloat(ctx.getText());
     }
 
     private static class ArithmeticCoefficientOperand {

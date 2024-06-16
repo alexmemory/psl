@@ -1,7 +1,7 @@
 /*
  * This file is part of the PSL software.
  * Copyright 2011-2015 University of Maryland
- * Copyright 2013-2019 The Regents of the University of California
+ * Copyright 2013-2022 The Regents of the University of California
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -60,18 +60,18 @@ public class WeightedGroundArithmeticRule extends AbstractGroundArithmeticRule i
     }
 
     @Override
-    public double getWeight() {
+    public float getWeight() {
         return ((WeightedRule)rule).getWeight();
     }
 
     @Override
-    public void setWeight(double weight) {
+    public void setWeight(float weight) {
         ((WeightedRule)rule).setWeight(weight);
     }
 
     @Override
-    public GeneralFunction getFunctionDefinition() {
-        GeneralFunction sum = new GeneralFunction(true, isSquared(), coefficients.length);
+    public GeneralFunction getFunctionDefinition(boolean mergeConstants) {
+        GeneralFunction sum = new GeneralFunction(true, isSquared(), coefficients.length, mergeConstants);
 
         float termSign = FunctionComparator.GTE.equals(comparator) ? -1.0f : 1.0f;
         for (int i = 0; i < coefficients.length; i++) {
@@ -88,12 +88,12 @@ public class WeightedGroundArithmeticRule extends AbstractGroundArithmeticRule i
     }
 
     @Override
-    public double getIncompatibility() {
+    public float getIncompatibility() {
         return getIncompatibility(null, 0.0f);
     }
 
     @Override
-    public double getIncompatibility(GroundAtom replacementAtom, float replacementValue) {
+    public float getIncompatibility(GroundAtom replacementAtom, float replacementValue) {
         float sum = 0.0f;
         for (int i = 0; i < coefficients.length; i++) {
             // Skip any grounding only predicates.
@@ -110,10 +110,10 @@ public class WeightedGroundArithmeticRule extends AbstractGroundArithmeticRule i
         sum -= constant;
 
         if (FunctionComparator.GTE.equals(comparator)) {
-            sum *= -1;
+            sum *= -1.0f;
         }
 
-        return (isSquared()) ? Math.pow(Math.max(sum, 0.0f), 2) : Math.max(sum, 0.0f);
+        return (float)((isSquared()) ? Math.pow(Math.max(sum, 0.0f), 2) : Math.max(sum, 0.0f));
     }
 
     @Override

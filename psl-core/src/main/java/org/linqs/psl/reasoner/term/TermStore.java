@@ -1,7 +1,7 @@
 /*
  * This file is part of the PSL software.
  * Copyright 2011-2015 University of Maryland
- * Copyright 2013-2019 The Regents of the University of California
+ * Copyright 2013-2022 The Regents of the University of California
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -17,13 +17,10 @@
  */
 package org.linqs.psl.reasoner.term;
 
-import org.linqs.psl.model.atom.RandomVariableAtom;
+import org.linqs.psl.model.atom.GroundAtom;
 import org.linqs.psl.model.rule.GroundRule;
-import org.linqs.psl.model.rule.WeightedGroundRule;
 
-import java.util.ArrayList;
 import java.util.Iterator;
-import java.util.List;
 
 /**
  * A place to store terms that are to be optimized.
@@ -31,8 +28,9 @@ import java.util.List;
 public interface TermStore<T extends ReasonerTerm, V extends ReasonerLocalVariable> extends Iterable<T> {
     /**
      * Add a term to the store that was generated from the given ground rule.
+     * The hyperplane used to create the term is provided for reference.
      */
-    public void add(GroundRule rule, T term);
+    public void add(GroundRule rule, T term, Hyperplane hyperplane);
 
     /**
      * Remove any existing terms and prepare for a new set.
@@ -40,23 +38,42 @@ public interface TermStore<T extends ReasonerTerm, V extends ReasonerLocalVariab
     public void clear();
 
     /**
+     * Reset the existing terms for another round of inference.
+     * Atom values are used to reset variables.
+     * Does NOT clear().
+     */
+    public void reset();
+
+    /**
      * Close down the term store, it will not be used any more.
      */
     public void close();
 
-    public T get(int index);
-
-    public int size();
+    /**
+     * A notification by the Reasoner that a single iteration is complete.
+     * TermStores may use this as a chance to update and data structures.
+     */
+    public void iterationComplete();
 
     /**
-     * Ensure that the underlying stuctures can have the required term capacity.
+     * A notification by the Reasoner that optimization is about to begin.
+     * TermStores may use this as a chance to finalize data structures.
+     */
+    public void initForOptimization();
+
+    public T get(long index);
+
+    public long size();
+
+    /**
+     * Ensure that the underlying structures can have the required term capacity.
      * This is more of a hint to the store about how much memory will be used.
      * This is best called on an empty store so it can prepare.
      */
-    public void ensureCapacity(int capacity);
+    public void ensureCapacity(long capacity);
 
     /**
-     * Ensure that the underlying stuctures can have the required variable capacity.
+     * Ensure that the underlying structures can have the required variable capacity.
      * This is more of a hint to the store about how much memory will be used.
      * This is best called on an empty store so it can prepare.
      * Not all term stores will even manage variables.
@@ -64,12 +81,24 @@ public interface TermStore<T extends ReasonerTerm, V extends ReasonerLocalVariab
     public void ensureVariableCapacity(int capacity);
 
     /**
-     * Create a variable local to a specific term.
+     * Create a variable local to a specific reasoner term.
      */
-    public V createLocalVariable(RandomVariableAtom atom);
+    public V createLocalVariable(GroundAtom atom);
+
+    /**
+     * Notify the term store that the variables have been updated through a process external to standard optimization.
+     */
+    public void variablesExternallyUpdated();
 
     /**
      * Get an iterator over the terms in the store that does not write to disk.
      */
     public Iterator<T> noWriteIterator();
+
+    /**
+     * Ensure that atoms tracked by this term store match the internal representation of those atoms.
+     * Note that atoms not tracked by this term store may not be updated.
+     * @return The RMSE between the tracked atoms and their internal representation.
+     */
+    public abstract double syncAtoms();
 }

@@ -1,7 +1,7 @@
 /*
  * This file is part of the PSL software.
  * Copyright 2011-2015 University of Maryland
- * Copyright 2013-2019 The Regents of the University of California
+ * Copyright 2013-2022 The Regents of the University of California
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -27,9 +27,13 @@ import org.linqs.psl.model.term.ConstantType;
 public class StandardPredicate extends Predicate {
     private boolean isBlock;
 
-    private StandardPredicate(String name, ConstantType[] types) {
+    protected StandardPredicate mirror;
+
+    protected StandardPredicate(String name, ConstantType[] types) {
         super(name, types);
+
         isBlock = false;
+        mirror = null;
 
         for (ConstantType type : types) {
             if (type == ConstantType.DeferredFunctionalUniqueID) {
@@ -46,6 +50,28 @@ public class StandardPredicate extends Predicate {
 
     public boolean isBlock() {
         return isBlock;
+    }
+
+    public void setMirror(StandardPredicate mirror) {
+        if (this.mirror != null && this.mirror != mirror) {
+            throw new IllegalArgumentException(String.format(
+                    "Mirror predicate for %s already set to %s. Cannot change to %s.",
+                    this, this.mirror, mirror));
+        }
+
+        this.mirror = mirror;
+    }
+
+    public StandardPredicate getMirror() {
+        return mirror;
+    }
+
+    /**
+     * Is this predicate one with mirror variables that are fixed during inference?
+     * Child classes that are fixed mirrors will override this.
+     */
+    public boolean isFixedMirror() {
+        return false;
     }
 
     /**
@@ -74,20 +100,24 @@ public class StandardPredicate extends Predicate {
             return new StandardPredicate(name, types);
         }
 
+        validateTypes(predicate, types);
+
+        return predicate;
+    }
+
+    protected static void validateTypes(Predicate predicate, ConstantType[] types) {
         if (predicate.getArity() != types.length) {
             throw new IllegalArgumentException(
-                    name + " -- Size mismatch for predicate types. Existing predicate: " +
+                    predicate.getName() + " -- Size mismatch for predicate types. Existing predicate: " +
                     predicate.getArity() + ", Query Predicate: " + types.length);
         }
 
         for (int i = 0; i < types.length; i++) {
             if (!predicate.getArgumentType(i).equals(types[i])) {
                 throw new IllegalArgumentException(
-                        name + " -- Type mismatch on " + i + ". Existing predicate: " +
+                        predicate.getName() + " -- Type mismatch on " + i + ". Existing predicate: " +
                         predicate.getArgumentType(i) + ", Query Predicate: " + types[i]);
             }
         }
-
-        return predicate;
     }
 }

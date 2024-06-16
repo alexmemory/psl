@@ -1,7 +1,7 @@
 /*
  * This file is part of the PSL software.
  * Copyright 2011-2015 University of Maryland
- * Copyright 2013-2019 The Regents of the University of California
+ * Copyright 2013-2022 The Regents of the University of California
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -21,6 +21,9 @@ import org.linqs.psl.model.atom.Atom;
 import org.linqs.psl.model.term.ConstantType;
 import org.linqs.psl.model.term.Term;
 
+import java.io.Serializable;
+import java.util.Arrays;
+import java.util.Collection;
 import java.util.HashMap;
 import java.util.Map;
 
@@ -30,11 +33,12 @@ import java.util.Map;
  * Predicates cannot be constructed directly.
  * Instead, they are constructed via the appropriate gegetthod in each subclass.
  */
-public abstract class Predicate {
-    private static Map<String, Predicate> predicates = new HashMap<String, Predicate>();
+public abstract class Predicate implements Serializable {
+    private static final Map<String, Predicate> predicates = new HashMap<String, Predicate>();
 
     private final String name;
     private final ConstantType[] types;
+    private final int hashcode;
 
     protected Predicate(String name, ConstantType[] types) {
         this(name, types, true);
@@ -55,6 +59,7 @@ public abstract class Predicate {
 
         this.name = name.toUpperCase();
         this.types = types;
+        hashcode = this.name.hashCode();
 
         if (predicates.containsKey(this.name)) {
             throw new RuntimeException("Predicate with name '" + name + "' already exists.");
@@ -88,6 +93,14 @@ public abstract class Predicate {
         return types[position];
     }
 
+    /**
+     * Close the predicate and free related resrouces.
+     * It will be very rare to call this method.
+     * Most predicates stay alive for the duration of PSL's run.
+     */
+    public void close() {
+    }
+
     @Override
     public String toString() {
         StringBuilder builder = new StringBuilder();
@@ -103,8 +116,36 @@ public abstract class Predicate {
         return builder.toString();
     }
 
+    @Override
+    public int hashCode() {
+        return hashcode;
+    }
+
+    @Override
+    public boolean equals(Object oth) {
+        if (oth == this) {
+            return true;
+        }
+
+        if (!(oth instanceof Predicate)) {
+            return false;
+        }
+
+        Predicate other = (Predicate)oth;
+
+        return hashCode() == other.hashCode() && name.equals(other.name) && Arrays.deepEquals(types, other.types);
+    }
+
+    public static void registerPredicate(Predicate predicate) {
+        predicates.put(predicate.getName(), predicate);
+    }
+
     public static Predicate get(String name)  {
         return predicates.get(name.toUpperCase());
+    }
+
+    public static Collection<Predicate> getAll() {
+        return predicates.values();
     }
 
     /**

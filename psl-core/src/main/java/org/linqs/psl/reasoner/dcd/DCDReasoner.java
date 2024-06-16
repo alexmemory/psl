@@ -1,7 +1,7 @@
 /*
  * This file is part of the PSL software.
  * Copyright 2011-2015 University of Maryland
- * Copyright 2013-2019 The Regents of the University of California
+ * Copyright 2013-2022 The Regents of the University of California
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -17,157 +17,149 @@
  */
 package org.linqs.psl.reasoner.dcd;
 
-import org.linqs.psl.config.Config;
-import org.linqs.psl.model.atom.RandomVariableAtom;
+import org.linqs.psl.application.learning.weight.TrainingMap;
+import org.linqs.psl.config.Options;
+import org.linqs.psl.evaluation.statistics.Evaluator;
+import org.linqs.psl.model.atom.GroundAtom;
+import org.linqs.psl.model.atom.ObservedAtom;
+import org.linqs.psl.model.predicate.StandardPredicate;
+import org.linqs.psl.model.rule.WeightedRule;
 import org.linqs.psl.reasoner.Reasoner;
 import org.linqs.psl.reasoner.dcd.term.DCDObjectiveTerm;
 import org.linqs.psl.reasoner.term.TermStore;
 import org.linqs.psl.reasoner.term.VariableTermStore;
 import org.linqs.psl.util.IteratorUtils;
+import org.linqs.psl.util.Logger;
 import org.linqs.psl.util.MathUtils;
 
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
-
+import java.util.Arrays;
 import java.util.Iterator;
+import java.util.List;
+import java.util.Set;
 
 /**
- * Uses an SGD optimization method to optimize its GroundRules.
+ * Uses a DCD optimization method to optimize its GroundRules.
  */
-public class DCDReasoner implements Reasoner {
-    private static final Logger log = LoggerFactory.getLogger(DCDReasoner.class);
+public class DCDReasoner extends Reasoner {
+    private static final Logger log = Logger.getLogger(DCDReasoner.class);
 
-    /**
-     * Prefix of property keys used by this class.
-     */
-    public static final String CONFIG_PREFIX = "dcd";
+    private int maxIterations;
 
-    /**
-     * The maximum number of iterations of SGD to perform in a round of inference.
-     */
-    public static final String MAX_ITER_KEY = CONFIG_PREFIX + ".maxiterations";
-    public static final int MAX_ITER_DEFAULT = 200;
-
-    /**
-     * Stop if the objective has not changed since the last logging period (see LOG_PERIOD).
-     */
-    public static final String OBJECTIVE_BREAK_KEY = CONFIG_PREFIX + ".objectivebreak";
-    public static final boolean OBJECTIVE_BREAK_DEFAULT = true;
-
-    /**
-     * The maximum number of iterations of SGD to perform in a round of inference.
-     */
-    public static final String OBJ_TOL_KEY = CONFIG_PREFIX + ".tolerance";
-    public static final float OBJ_TOL_DEFAULT = 0.000001f;
-
-    public static final String C_KEY = CONFIG_PREFIX + ".C";
-    public static final float C_DEFAULT = 10.0f;
-
-    public static final String TRUNCATE_EVERY_STEP_KEY = CONFIG_PREFIX + ".truncateeverystep";
-    public static final boolean TRUNCATE_EVERY_STEP_DEFAULT = false;
-
-    public static final String PRINT_OBJECTIVE_KEY = CONFIG_PREFIX + ".printobj";
-    public static final boolean PRINT_OBJECTIVE_DEFAULT = true;
-
-    /**
-     * Print the objective before any optimization.
-     * Note that this will require a pass through all the terms,
-     * and therefore may affect performance.
-     * Has no effect if printobj is false.
-     */
-    public static final String PRINT_INITIAL_OBJECTIVE_KEY = CONFIG_PREFIX + ".printinitialobj";
-    public static final boolean PRINT_INITIAL_OBJECTIVE_DEFAULT = false;
-
-    private int maxIter;
-
-    private float tolerance;
-    private boolean printObj;
-    private boolean printInitialObj;
-    private boolean objectiveBreak;
     private float c;
     private boolean truncateEveryStep;
 
     public DCDReasoner() {
-        maxIter = Config.getInt(MAX_ITER_KEY, MAX_ITER_DEFAULT);
-        objectiveBreak = Config.getBoolean(OBJECTIVE_BREAK_KEY, OBJECTIVE_BREAK_DEFAULT);
-        printObj = Config.getBoolean(PRINT_OBJECTIVE_KEY, PRINT_OBJECTIVE_DEFAULT);
-        printInitialObj = Config.getBoolean(PRINT_INITIAL_OBJECTIVE_KEY, PRINT_INITIAL_OBJECTIVE_DEFAULT);
-        tolerance = Config.getFloat(OBJ_TOL_KEY, OBJ_TOL_DEFAULT);
-        c = Config.getFloat(C_KEY, C_DEFAULT);
-        truncateEveryStep = Config.getBoolean(TRUNCATE_EVERY_STEP_KEY, TRUNCATE_EVERY_STEP_DEFAULT);
-    }
-
-    public int getMaxIter() {
-        return maxIter;
-    }
-
-    public void setMaxIter(int maxIter) {
-        this.maxIter = maxIter;
+        maxIterations = Options.DCD_MAX_ITER.getInt();
+        c = Options.DCD_C.getFloat();
+        truncateEveryStep = Options.DCD_TRUNCATE_EVERY_STEP.getBoolean();
     }
 
     @Override
-    public void optimize(TermStore baseTermStore) {
+    public double optimize(TermStore baseTermStore,
+            List<Evaluator> evaluators, TrainingMap trainingMap, Set<StandardPredicate> evaluationPredicates) {
         if (!(baseTermStore instanceof VariableTermStore)) {
             throw new IllegalArgumentException("DCDReasoner requires an VariableTermStore (found " + baseTermStore.getClass().getName() + ").");
         }
 
         @SuppressWarnings("unchecked")
-        VariableTermStore<DCDObjectiveTerm, RandomVariableAtom> termStore = (VariableTermStore<DCDObjectiveTerm, RandomVariableAtom>)baseTermStore;
+        VariableTermStore<DCDObjectiveTerm, GroundAtom> termStore = (VariableTermStore<DCDObjectiveTerm, GroundAtom>)baseTermStore;
 
-        // This must be called after the term store has to correct variable capacity.
-        // A reallocation can cause this array to become out-of-date.
-        float[] variableValues = termStore.getVariableValues();
+        termStore.initForOptimization();
 
-        float objective = -1.0f;
-        float oldObjective = Float.POSITIVE_INFINITY;
+        long termCount = 0;
+        double change = 0.0;
+        double objective = Double.POSITIVE_INFINITY;
+        // Starting on the second iteration, keep track of the previous iteration's objective value.
+        // The variable values from the term store cannot be used to calculate the objective during an
+        // optimization pass because they are being updated in the variableUpdate() method.
+        // Note that the number of variables may change in the first iteration (since grounding may happen then).
+        double oldObjective = Double.POSITIVE_INFINITY;
+        float[] oldVariableValues = null;
 
+        long totalTime = 0;
+        boolean breakDCD = false;
         int iteration = 1;
-        if (printObj) {
-            log.trace("objective:Iterations,Time(ms),Objective");
 
-            if (printInitialObj) {
-                objective = computeObjective(termStore, variableValues);
-                log.trace("objective:{},{},{}", 0, 0, objective);
-            }
-        }
-
-        long time = 0;
-        while (iteration <= maxIter
-                && (!objectiveBreak || (iteration == 1 || !MathUtils.equals(objective, oldObjective, tolerance)))) {
+        while(!breakDCD) {
             long start = System.currentTimeMillis();
 
+            termCount = 0;
+            objective = 0.0;
+
             for (DCDObjectiveTerm term : termStore) {
-                term.minimize(truncateEveryStep, variableValues);
+                if (iteration > 1) {
+                    objective += term.evaluate(oldVariableValues) / c;
+                }
+
+                termCount++;
+                variableUpdate(term, termStore);
             }
 
             // If we are truncating every step, then the variables are already in valid state.
             if (!truncateEveryStep) {
-                for (RandomVariableAtom variable : termStore.getVariables()) {
-                    variable.setValue(Math.max(Math.min(variable.getValue(), 1.0f), 0.0f));
+                float[] variableValues = termStore.getVariableValues();
+                for (int i = 0; i < termStore.getNumVariables(); i++) {
+                    variableValues[i] = Math.max(0.0f, Math.min(1.0f, variableValues[i]));
                 }
             }
 
-            long end = System.currentTimeMillis();
-            oldObjective = objective;
-            objective = computeObjective(termStore, variableValues);
-            time += end - start;
+            evaluate(termStore, iteration, evaluators, trainingMap, evaluationPredicates);
 
-            if (printObj) {
-                log.trace("objective:{},{},{}", iteration, time, objective);
+            termStore.iterationComplete();
+
+            breakDCD = breakOptimization(iteration, objective, oldObjective, termCount);
+
+            if (iteration == 1) {
+                // Initialize old variables values.
+                oldVariableValues = Arrays.copyOf(termStore.getVariableValues(), termStore.getVariableValues().length);
+            } else {
+                // Update old variables values and objective.
+                System.arraycopy(termStore.getVariableValues(), 0, oldVariableValues, 0, oldVariableValues.length);
+                oldObjective = objective;
+            }
+
+            long end = System.currentTimeMillis();
+            totalTime += end - start;
+
+            if (iteration > 1 && log.isTraceEnabled()) {
+                log.trace("Iteration {} -- Objective: {}, Normalized Objective: {}, Iteration Time: {}, Total Optimization Time: {}",
+                        iteration - 1, objective, objective / termCount, (end - start), totalTime);
             }
 
             iteration++;
         }
 
-        termStore.syncAtoms();
+        objective = computeObjective(termStore);
+        change = termStore.syncAtoms();
 
-        log.info("Optimization completed in {} iterations. Objective.: {}", iteration - 1, objective);
-        log.debug("Optimized with {} variables and {} terms.", termStore.getNumVariables(), termStore.size());
+        log.info("Final Objective: {}, Final Normalized Objective: {}, Total Optimization Time: {}, Total Number of Iterations: {}", objective, objective / termCount, totalTime, iteration);
+        log.debug("Movement of variables from initial state: {}", change);
+        log.debug("Optimized with {} variables and {} terms.", termStore.getNumRandomVariables(), termCount);
+
+        return objective;
     }
 
-    private float computeObjective(VariableTermStore<DCDObjectiveTerm, RandomVariableAtom> termStore, float[] variableValues) {
-        float objective = 0.0f;
-        int termCount = 0;
+    private boolean breakOptimization(int iteration, double objective, double oldObjective, long termCount) {
+        // Always break when the allocated iterations is up.
+        if (iteration > (int)(maxIterations * budget)) {
+            return true;
+        }
+
+        // Run through the maximum number of iterations.
+        if (runFullIterations) {
+            return false;
+        }
+
+        // Break if the objective has not changed.
+        if (objectiveBreak && MathUtils.equals(objective / termCount, oldObjective / termCount, tolerance)) {
+            return true;
+        }
+
+        return false;
+    }
+
+    private double computeObjective(VariableTermStore<DCDObjectiveTerm, GroundAtom> termStore) {
+        double objective = 0.0;
 
         // If possible, use a readonly iterator.
         Iterator<DCDObjectiveTerm> termIterator = null;
@@ -178,11 +170,61 @@ public class DCDReasoner implements Reasoner {
         }
 
         for (DCDObjectiveTerm term : IteratorUtils.newIterable(termIterator)) {
-            objective += term.evaluate(variableValues) / c;
-            termCount++;
+            objective += term.evaluate(termStore.getVariableValues()) / c;
         }
 
-        return objective / termCount;
+        return objective;
+    }
+
+    private void variableUpdate(DCDObjectiveTerm term, VariableTermStore<DCDObjectiveTerm, GroundAtom> termStore) {
+        GroundAtom[] variableAtoms = termStore.getVariableAtoms();
+        float[] variableValues = termStore.getVariableValues();
+
+        WeightedRule rule = term.getRule();
+
+        float adjustedWeight = rule.getWeight() * c;
+        float gradient = term.computeGradient(variableValues);
+
+        if (term.isSquared()) {
+            gradient += term.getLagrange() / (2.0f * adjustedWeight);
+            variableUpdate(term, gradient, adjustedWeight, Float.POSITIVE_INFINITY, variableValues, variableAtoms);
+        } else {
+            variableUpdate(term, gradient, adjustedWeight, adjustedWeight, variableValues, variableAtoms);
+        }
+    }
+
+    private void variableUpdate(DCDObjectiveTerm term, float gradient, float adjustedWeight, float lim, float[] variableValues, GroundAtom[] variableAtoms) {
+        float pg = gradient;
+
+        if (MathUtils.isZero(term.getLagrange())) {
+            pg = Math.min(0.0f, gradient);
+        }
+
+        if (MathUtils.equals(lim, adjustedWeight) && MathUtils.equals(term.getLagrange(), adjustedWeight)) {
+            pg = Math.max(0.0f, gradient);
+        }
+
+        if (MathUtils.isZero(pg)) {
+            return;
+        }
+
+        float pa = term.getLagrange();
+        int[] variableIndexes = term.getVariableIndexes();
+        float[] coefficients = term.getCoefficients();
+
+        term.setLagrange(Math.min(lim, Math.max(0.0f, term.getLagrange() - gradient / term.getQii())));
+
+        for (int i = 0; i < term.size(); i++) {
+            if (variableAtoms[variableIndexes[i]] instanceof ObservedAtom) {
+                continue;
+            }
+
+            float val = variableValues[variableIndexes[i]] - ((term.getLagrange() - pa) * coefficients[i]);
+            if (truncateEveryStep) {
+                val = Math.max(0.0f, Math.min(1.0f, val));
+            }
+            variableValues[variableIndexes[i]] = val;
+        }
     }
 
     @Override

@@ -1,7 +1,7 @@
 /*
  * This file is part of the PSL software.
  * Copyright 2011-2015 University of Maryland
- * Copyright 2013-2019 The Regents of the University of California
+ * Copyright 2013-2022 The Regents of the University of California
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -17,23 +17,19 @@
  */
 package org.linqs.psl.database.rdbms;
 
-import org.linqs.psl.config.Config;
-import org.linqs.psl.database.DataStore;
+import org.linqs.psl.config.Options;
 import org.linqs.psl.database.Database;
 import org.linqs.psl.database.DatabaseQuery;
 import org.linqs.psl.database.Partition;
 import org.linqs.psl.database.ResultList;
 import org.linqs.psl.database.QueryResultIterable;
-import org.linqs.psl.database.atom.AtomCache;
 import org.linqs.psl.model.atom.GroundAtom;
-import org.linqs.psl.model.atom.ObservedAtom;
 import org.linqs.psl.model.atom.QueryAtom;
 import org.linqs.psl.model.atom.RandomVariableAtom;
 import org.linqs.psl.model.formula.Formula;
 import org.linqs.psl.model.predicate.FunctionalPredicate;
 import org.linqs.psl.model.predicate.Predicate;
 import org.linqs.psl.model.predicate.StandardPredicate;
-import org.linqs.psl.model.term.Attribute;
 import org.linqs.psl.model.term.Constant;
 import org.linqs.psl.model.term.ConstantType;
 import org.linqs.psl.model.term.DoubleAttribute;
@@ -45,26 +41,18 @@ import org.linqs.psl.model.term.UniqueIntID;
 import org.linqs.psl.model.term.UniqueStringID;
 import org.linqs.psl.model.term.Variable;
 import org.linqs.psl.model.term.VariableTypeMap;
+import org.linqs.psl.util.Logger;
+import org.linqs.psl.util.MathUtils;
 import org.linqs.psl.util.Parallel;
-
-import com.healthmarketscience.sqlbuilder.BinaryCondition;
-import com.healthmarketscience.sqlbuilder.CustomSql;
-import com.healthmarketscience.sqlbuilder.InCondition;
-import com.healthmarketscience.sqlbuilder.InsertQuery;
-import com.healthmarketscience.sqlbuilder.QueryPreparer;
-import com.healthmarketscience.sqlbuilder.SelectQuery;
-import com.healthmarketscience.sqlbuilder.UpdateQuery;
-import com.healthmarketscience.sqlbuilder.DeleteQuery;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
+import org.linqs.psl.util.StringUtils;
 
 import java.sql.Connection;
 import java.sql.PreparedStatement;
 import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.sql.Statement;
-import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.ArrayList;
 import java.util.Collections;
 import java.util.HashMap;
 import java.util.HashSet;
@@ -79,12 +67,7 @@ import java.util.Set;
  * out connections and statements after we are done with them.
  */
 public class RDBMSDatabase extends Database {
-    private static final Logger log = LoggerFactory.getLogger(RDBMSDatabase.class);
-
-    public static final String CONFIG_PREFIX = "rdbmsdatabase";
-
-    public static final String FETCH_SIZE_KEY = CONFIG_PREFIX + ".fetchsize";
-    public static final int FETCH_SIZE_DEFAULT = 500;
+    private static final Logger log = Logger.getLogger(RDBMSDatabase.class);
 
     private static final float DEFAULT_UNOBSERVED_VALUE = 0.0f;
 
@@ -102,7 +85,7 @@ public class RDBMSDatabase extends Database {
             Set<StandardPredicate> closed) {
         super(parent, write, read);
 
-        fetchSize = Config.getInt(FETCH_SIZE_KEY, FETCH_SIZE_DEFAULT);
+        fetchSize = Options.RDBMS_FETCH_SIZE.getInt();
 
         this.closedPredicates = new HashSet<Predicate>();
         if (closed != null) {
@@ -152,6 +135,14 @@ public class RDBMSDatabase extends Database {
 
     @Override
     public boolean deleteAtom(GroundAtom atom) {
+        return deleteAtom(atom, Arrays.asList(writeID));
+    }
+
+    public boolean deleteAtomAllPartitions(GroundAtom atom) {
+        return deleteAtom(atom, allPartitionIDs);
+    }
+
+    public boolean deleteAtom(GroundAtom atom, List<Integer> partitions) {
         QueryAtom queryAtom = new QueryAtom(atom.getPredicate(), atom.getArguments());
         if (cache.getCachedAtom(queryAtom) != null) {
             cache.removeCachedAtom(queryAtom);
@@ -159,7 +150,9 @@ public class RDBMSDatabase extends Database {
 
         try (
             Connection connection = getConnection();
-            PreparedStatement statement = getAtomDelete(connection, ((RDBMSDataStore)parentDataStore).getPredicateInfo(atom.getPredicate()), atom.getArguments());
+            PreparedStatement statement = getAtomDelete(connection,
+                    ((RDBMSDataStore)parentDataStore).getPredicateInfo(atom.getPredicate()),
+                    atom.getArguments(), partitions);
         ) {
             if (statement.executeUpdate() > 0) {
                 return true;
@@ -177,17 +170,17 @@ public class RDBMSDatabase extends Database {
     }
 
     @Override
-    public void commit(Iterable<RandomVariableAtom> atoms, int partitionId) {
+    public void commit(Iterable<? extends GroundAtom> atoms, int partitionId) {
         if (closed) {
             throw new IllegalStateException("Cannot commit on a closed database.");
         }
 
         // Split the atoms up by predicate.
-        Map<Predicate, List<RandomVariableAtom>> atomsByPredicate = new HashMap<Predicate, List<RandomVariableAtom>>();
+        Map<Predicate, List<GroundAtom>> atomsByPredicate = new HashMap<Predicate, List<GroundAtom>>();
 
-        for (RandomVariableAtom atom : atoms) {
+        for (GroundAtom atom : atoms) {
             if (!atomsByPredicate.containsKey(atom.getPredicate())) {
-                atomsByPredicate.put(atom.getPredicate(), new ArrayList<RandomVariableAtom>());
+                atomsByPredicate.put(atom.getPredicate(), new ArrayList<GroundAtom>());
             }
 
             atomsByPredicate.get(atom.getPredicate()).add(atom);
@@ -195,12 +188,12 @@ public class RDBMSDatabase extends Database {
 
         try (Connection connection = getConnection()) {
             // Upsert each predicate batch.
-            for (Map.Entry<Predicate, List<RandomVariableAtom>> entry : atomsByPredicate.entrySet()) {
+            for (Map.Entry<Predicate, List<GroundAtom>> entry : atomsByPredicate.entrySet()) {
                 try (PreparedStatement statement = getAtomUpsert(connection, ((RDBMSDataStore)parentDataStore).getPredicateInfo(entry.getKey()))) {
                     int batchSize = 0;
 
                     // Set all the upsert params.
-                    for (RandomVariableAtom atom : entry.getValue()) {
+                    for (GroundAtom atom : entry.getValue()) {
                         // Partition
                         statement.setInt(1, partitionId);
 
@@ -239,11 +232,16 @@ public class RDBMSDatabase extends Database {
 
     @Override
     public void moveToWritePartition(StandardPredicate predicate, int oldPartitionId) {
+        moveToPartition(predicate, oldPartitionId, writeID);
+    }
+
+    @Override
+    public void moveToPartition(StandardPredicate predicate, int oldPartitionId, int newPartitionId) {
         PredicateInfo predicateInfo = ((RDBMSDataStore)parentDataStore).getPredicateInfo(predicate);
 
         try (
             Connection connection = getConnection();
-            PreparedStatement statement = predicateInfo.createPartitionMoveStatement(connection, oldPartitionId, writeID);
+            PreparedStatement statement = predicateInfo.createPartitionMoveStatement(connection, oldPartitionId, newPartitionId);
         ) {
             statement.executeUpdate();
         } catch (SQLException ex) {
@@ -400,8 +398,8 @@ public class RDBMSDatabase extends Database {
         return predicate.createUpsertStatement(connection, ((RDBMSDataStore)parentDataStore).getDriver());
     }
 
-    private PreparedStatement getAtomDelete(Connection connection, PredicateInfo predicate, Term[] arguments) {
-        PreparedStatement statement = predicate.createDeleteStatement(connection, writeID);
+    private PreparedStatement getAtomDelete(Connection connection, PredicateInfo predicate, Term[] arguments, List<Integer> partitions) {
+        PreparedStatement statement = predicate.createDeleteStatement(connection, partitions);
 
         try {
             for (int i = 0; i < arguments.length; i++) {
@@ -416,8 +414,8 @@ public class RDBMSDatabase extends Database {
 
     /**
      * Given a ResultSet, column name, and ConstantType,
-     * get the value as a Constnt from the results.
-     * columnIndex should be 0-indexed (eventhough jdbc uses 1-index).
+     * get the value as a Constant from the results.
+     * columnIndex should be 0-indexed (even though jdbc uses 1-index).
      */
     private Constant extractConstantFromResult(ResultSet results, int columnIndex, ConstantType type) {
         try {
@@ -452,6 +450,10 @@ public class RDBMSDatabase extends Database {
         float value = resultSet.getFloat(PredicateInfo.VALUE_COLUMN_NAME);
         if (resultSet.wasNull()) {
             value = Float.NaN;
+        } else if (value < 0.0f || value > 1.0f) {
+            throw new IllegalArgumentException(String.format(
+                    "Attempt to instantiate an atom with a truth value outside of [0, 1]. Value: %f, Predicate: %s, Arguments: [%s].",
+                    value, predicate, StringUtils.join(", ", arguments)));
         }
 
         int partition = resultSet.getInt(PredicateInfo.PARTITION_COLUMN_NAME);
@@ -471,14 +473,13 @@ public class RDBMSDatabase extends Database {
     }
 
     private GroundAtom getAtom(StandardPredicate predicate, Constant... arguments) {
-        return getAtom(predicate, true, arguments);
+        return getAtom(predicate, true, true, -1.0, arguments);
     }
 
-    /**
-     * @param create Create an atom if one does not exist.
-     */
     @Override
-    public GroundAtom getAtom(StandardPredicate predicate, boolean create, Constant... arguments) {
+    public GroundAtom getAtom(StandardPredicate predicate,
+            boolean create, boolean queryDBForClosedAtoms, double trivialValue,
+            Constant... arguments) {
         // Only allocate one QueryAtom per thread.
         QueryAtom queryAtom = null;
         if (!Parallel.hasThreadObject(THREAD_QUERY_ATOM_KEY)) {
@@ -492,6 +493,14 @@ public class RDBMSDatabase extends Database {
         GroundAtom result = cache.getCachedAtom(queryAtom);
         if (result != null) {
             return result;
+        }
+
+        if (create && !queryDBForClosedAtoms && isClosed(predicate)) {
+            if (MathUtils.equals(trivialValue, DEFAULT_UNOBSERVED_VALUE)) {
+                return null;
+            }
+
+            return cache.instantiateObservedAtom(predicate, arguments, DEFAULT_UNOBSERVED_VALUE);
         }
 
         return fetchAtom(predicate, create, arguments);
@@ -510,7 +519,7 @@ public class RDBMSDatabase extends Database {
             return result;
         }
 
-        if (isClosed((StandardPredicate)predicate)) {
+        if (isClosed(predicate)) {
             result = cache.instantiateObservedAtom(predicate, arguments, DEFAULT_UNOBSERVED_VALUE);
         } else {
             result = cache.instantiateRandomVariableAtom(predicate, arguments, DEFAULT_UNOBSERVED_VALUE);

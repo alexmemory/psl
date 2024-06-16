@@ -1,7 +1,7 @@
 /*
  * This file is part of the PSL software.
  * Copyright 2011-2015 University of Maryland
- * Copyright 2013-2019 The Regents of the University of California
+ * Copyright 2013-2022 The Regents of the University of California
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -31,20 +31,26 @@ public interface WeightedGroundRule extends GroundRule {
      * Until setWeight() is called, this GroundRule's weight is the current weight of its parent Rule.
      * After it is called, it remains the most recent Weight set by setWeight().
      */
-    public double getWeight();
+    public float getWeight();
 
     /**
      * Sets a weight for this WeightedGroundRule.
      */
-    public void setWeight(double weight);
+    public void setWeight(float weight);
 
-    public GeneralFunction getFunctionDefinition();
+    /**
+     * Get a GeneralFunction representation of this ground rule.
+     * If mergeConstants is true, then don't merge together constant terms.
+     * Merging terms is generally encouraged, but certain inference methods
+     * may need direct access to these terms.
+     */
+    public GeneralFunction getFunctionDefinition(boolean mergeConstants);
 
     /**
      * Returns the incompatibility of the truth values of this GroundRule's GroundAtoms.
      * Incompatibility is always non-negative.
      */
-    public double getIncompatibility();
+    public float getIncompatibility();
 
     /**
      * Returns the incompatibility of the truth values of this GroundRule's GroundAtoms given
@@ -52,5 +58,5 @@ public interface WeightedGroundRule extends GroundRule {
      * This method should only be used by callers that really know what they are doing.
      * Incompatibility is always non-negative.
      */
-    public double getIncompatibility(GroundAtom replacementAtom, float replacementValue);
+    public float getIncompatibility(GroundAtom replacementAtom, float replacementValue);
 }

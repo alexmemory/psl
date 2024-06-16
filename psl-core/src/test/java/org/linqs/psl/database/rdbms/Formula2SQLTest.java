@@ -1,7 +1,7 @@
 /*
  * This file is part of the PSL software.
  * Copyright 2011-2015 University of Maryland
- * Copyright 2013-2019 The Regents of the University of California
+ * Copyright 2013-2022 The Regents of the University of California
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -17,15 +17,8 @@
  */
 package org.linqs.psl.database.rdbms;
 
-import static org.junit.Assert.assertEquals;
-import static org.junit.Assert.assertTrue;
-import static org.junit.Assert.fail;
-
-import org.junit.After;
-import org.junit.Before;
-import org.junit.Test;
-import org.linqs.psl.TestModel;
-import org.linqs.psl.application.inference.MPEInference;
+import org.linqs.psl.application.inference.InferenceApplication;
+import org.linqs.psl.application.inference.mpe.MPEInference;
 import org.linqs.psl.database.Database;
 import org.linqs.psl.database.ReadableDatabase;
 import org.linqs.psl.model.atom.QueryAtom;
@@ -42,11 +35,17 @@ import org.linqs.psl.model.rule.logical.WeightedLogicalRule;
 import org.linqs.psl.model.term.Constant;
 import org.linqs.psl.model.term.ConstantType;
 import org.linqs.psl.model.term.Variable;
+import org.linqs.psl.test.PSLBaseTest;
+import org.linqs.psl.test.TestModel;
+
+import org.junit.After;
+import org.junit.Before;
+import org.junit.Test;
 
 import java.util.HashSet;
 import java.util.Set;
 
-public class Formula2SQLTest {
+public class Formula2SQLTest extends PSLBaseTest {
     @Test
     /**
      * Ensure that ExternalFunctions work with only one argument.
@@ -70,23 +69,15 @@ public class Formula2SQLTest {
             new QueryAtom(info.predicates.get("Friends"), new Variable("A"), new Variable("B"))
         );
 
-        Rule rule = new WeightedLogicalRule(ruleFormula, 10.0, true);
+        Rule rule = new WeightedLogicalRule(ruleFormula, 10.0f, true);
         info.model.addRule(rule);
 
         Set<StandardPredicate> toClose = new HashSet<StandardPredicate>();
         Database inferDB = info.dataStore.getDatabase(info.targetPartition, toClose, info.observationPartition);
-        MPEInference mpe = null;
+        InferenceApplication inference = new MPEInference(info.model.getRules(), inferDB);
 
-        try {
-            mpe = new MPEInference(info.model, inferDB);
-        } catch (Exception ex) {
-            System.out.println(ex);
-            ex.printStackTrace();
-            fail("Exception thrown during MPE constructor.");
-        }
-
-        mpe.inference();
-        mpe.close();
+        inference.inference();
+        inference.close();
         inferDB.close();
 
         // There are 5 people, and the rule chooses 2.
@@ -122,24 +113,16 @@ public class Formula2SQLTest {
                     ),
                     new QueryAtom(info.predicates.get("Friends"), new Variable("A"), new Variable("B"))
                 ),
-                10.0,
+                10.0f,
                 true);
         info.model.addRule(rule);
 
         Set<StandardPredicate> toClose = new HashSet<StandardPredicate>();
         Database inferDB = info.dataStore.getDatabase(info.targetPartition, toClose, info.observationPartition);
-        MPEInference mpe = null;
+        InferenceApplication inference = new MPEInference(info.model.getRules(), inferDB);
 
-        try {
-            mpe = new MPEInference(info.model, inferDB);
-        } catch (Exception ex) {
-            System.out.println(ex);
-            ex.printStackTrace();
-            fail("Exception thrown during MPE constructor.");
-        }
-
-        mpe.inference();
-        mpe.close();
+        inference.inference();
+        inference.close();
         inferDB.close();
 
         // External functions are only called when instantiating ground rules.

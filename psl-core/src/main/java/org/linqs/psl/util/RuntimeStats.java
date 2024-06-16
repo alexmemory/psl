@@ -1,7 +1,7 @@
 /*
  * This file is part of the PSL software.
  * Copyright 2011-2015 University of Maryland
- * Copyright 2013-2019 The Regents of the University of California
+ * Copyright 2013-2022 The Regents of the University of California
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -17,10 +17,7 @@
  */
 package org.linqs.psl.util;
 
-import org.linqs.psl.config.Config;
-
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
+import org.linqs.psl.config.Options;
 
 import java.util.Timer;
 import java.util.TimerTask;
@@ -32,20 +29,7 @@ import java.util.TimerTask;
  * Collections can also be started manually through the collect() method.
  */
 public final class RuntimeStats {
-    private static final Logger log = LoggerFactory.getLogger(RuntimeStats.class);
-
-    public static final String CONFIG_PREFIX = "runtimestats";
-
-    /**
-     * Periodically collect stats on the JVM.
-     */
-    public static final String COLLECT_KEY = CONFIG_PREFIX + ".collect";
-
-    /**
-     * The period (in ms) of stats collection.
-     */
-    public static final String COLLECTION_PERIOD_KEY = CONFIG_PREFIX + ".period";
-    public static final long COLLECTION_PERIOD_DEFAULT = 250;
+    private static final Logger log = Logger.getLogger(RuntimeStats.class);
 
     private static MeanStats totalMemory = new MeanStats();
     private static MeanStats freeMemory = new MeanStats();
@@ -79,21 +63,21 @@ public final class RuntimeStats {
             return;
         }
 
-        Object property = Config.getUnloggedProperty(COLLECT_KEY);
+        Object property = Options.RUNTIME_STATS_COLLECT.getUnlogged();
         if (property == null || !Boolean.parseBoolean((String)property)) {
             return;
         }
 
         init();
 
-        long period = Config.getLong(COLLECTION_PERIOD_KEY, COLLECTION_PERIOD_DEFAULT);
+        long period = Options.RUNTIME_COLLECTION_PERIOD.getLong();
 
         collectionTimer = new Timer(RuntimeStats.class.getName(), true);
         collectionTimer.schedule(new CollectionTask(), 0, period);
     }
 
     public static synchronized void stopCollection() {
-        if (collectionTimer != null) {
+        if (collectionTimer == null) {
             return;
         }
 

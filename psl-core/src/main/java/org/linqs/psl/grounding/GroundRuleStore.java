@@ -1,7 +1,7 @@
 /*
  * This file is part of the PSL software.
  * Copyright 2011-2015 University of Maryland
- * Copyright 2013-2019 The Regents of the University of California
+ * Copyright 2013-2022 The Regents of the University of California
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -99,10 +99,10 @@ public interface GroundRuleStore {
     /**
      * @return the number of GroundRules in this store
      */
-    public int size();
+    public long size();
 
     /**
      * @return the number of GroundRules for a specific rule in this store
      */
-    public int count(Rule rule);
+    public long count(Rule rule);
 }

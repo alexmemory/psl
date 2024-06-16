@@ -1,7 +1,7 @@
 /*
  * This file is part of the PSL software.
  * Copyright 2011-2015 University of Maryland
- * Copyright 2013-2019 The Regents of the University of California
+ * Copyright 2013-2022 The Regents of the University of California
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -18,10 +18,8 @@
 package org.linqs.psl.evaluation.statistics;
 
 import org.linqs.psl.application.learning.weight.TrainingMap;
-import org.linqs.psl.config.Config;
+import org.linqs.psl.config.Options;;
 import org.linqs.psl.model.atom.GroundAtom;
-import org.linqs.psl.model.atom.ObservedAtom;
-import org.linqs.psl.model.atom.RandomVariableAtom;
 import org.linqs.psl.model.predicate.StandardPredicate;
 import org.linqs.psl.util.MathUtils;
 
@@ -36,19 +34,6 @@ public class ContinuousEvaluator extends Evaluator {
         MSE
     }
 
-    /**
-     * Prefix of property keys used by this class.
-     */
-    public static final String CONFIG_PREFIX = "continuousevaluator";
-
-    /**
-     * The representative metric.
-     * Default to MSE.
-     * Must match a string from the RepresentativeMetric enum.
-     */
-    public static final String REPRESENTATIVE_KEY = CONFIG_PREFIX + ".representative";
-    public static final String DEFAULT_REPRESENTATIVE = "MSE";
-
     private RepresentativeMetric representative;
 
     private int count;
@@ -56,7 +41,7 @@ public class ContinuousEvaluator extends Evaluator {
     private double squaredError;
 
     public ContinuousEvaluator() {
-        this(Config.getString(REPRESENTATIVE_KEY, DEFAULT_REPRESENTATIVE));
+        this(Options.EVAL_CONT_REPRESENTATIVE.getString());
     }
 
     public ContinuousEvaluator(String representative) {
@@ -82,7 +67,7 @@ public class ContinuousEvaluator extends Evaluator {
         absoluteError = 0.0;
         squaredError = 0.0;
 
-        for (Map.Entry<GroundAtom, GroundAtom> entry : trainingMap.getFullMap()) {
+        for (Map.Entry<GroundAtom, GroundAtom> entry : getMap(trainingMap)) {
             if (predicate != null && entry.getKey().getPredicate() != predicate) {
                 continue;
             }
@@ -94,7 +79,7 @@ public class ContinuousEvaluator extends Evaluator {
     }
 
     @Override
-    public double getRepresentativeMetric() {
+    public double getRepMetric() {
         switch (representative) {
             case MAE:
                 return mae();
@@ -106,7 +91,18 @@ public class ContinuousEvaluator extends Evaluator {
     }
 
     @Override
-    public boolean isHigherRepresentativeBetter() {
+    public double getBestRepScore() {
+        switch (representative) {
+            case MAE:
+            case MSE:
+                return 0.0;
+            default:
+                throw new IllegalStateException("Unknown representative metric: " + representative);
+        }
+    }
+
+    @Override
+    public boolean isHigherRepBetter() {
         return false;
     }
 
@@ -128,6 +124,7 @@ public class ContinuousEvaluator extends Evaluator {
 
     @Override
     public String getAllStats() {
-        return String.format("MAE: %f, MSE: %f", mae(), mse());
+        double mse = mse();
+        return String.format("MAE: %f, MSE: %f, RMSE: %f", mae(), mse, Math.sqrt(mse));
     }
 }

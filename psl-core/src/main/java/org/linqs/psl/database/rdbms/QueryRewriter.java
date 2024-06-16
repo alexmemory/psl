@@ -1,7 +1,7 @@
 /*
  * This file is part of the PSL software.
  * Copyright 2011-2015 University of Maryland
- * Copyright 2013-2019 The Regents of the University of California
+ * Copyright 2013-2022 The Regents of the University of California
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -17,7 +17,7 @@
  */
 package org.linqs.psl.database.rdbms;
 
-import org.linqs.psl.config.Config;
+import org.linqs.psl.config.Options;
 import org.linqs.psl.database.DatabaseQuery;
 import org.linqs.psl.model.atom.Atom;
 import org.linqs.psl.model.formula.Conjunction;
@@ -28,9 +28,7 @@ import org.linqs.psl.model.predicate.GroundingOnlyPredicate;
 import org.linqs.psl.model.predicate.StandardPredicate;
 import org.linqs.psl.model.term.Term;
 import org.linqs.psl.model.term.Variable;
-
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
+import org.linqs.psl.util.Logger;
 
 import java.util.HashMap;
 import java.util.HashSet;
@@ -45,33 +43,12 @@ import java.util.Set;
  * Note that this class will make heavy use of referential equality.
  */
 public class QueryRewriter {
-    private static final Logger log = LoggerFactory.getLogger(QueryRewriter.class);
-
-    public static final String CONFIG_PREFIX = "queryrewriter";
-
-    /**
-     * How much we allow the query cost (number of rows) to for new plans.
-     */
-    public static final String ALLOWED_TOTAL_INCREASE_KEY = CONFIG_PREFIX + ".allowedtotalcostincrease";
-    public static final double ALLOWED_TOTAL_INCREASE_DEFAULT = 2.0;
-
-    /**
-     * How much we allow the query cost (number of rows) to increase at each step.
-     */
-    public static final String ALLOWED_STEP_INCREASE_KEY = CONFIG_PREFIX + ".allowedstepcostincrease";
-    public static final double ALLOWED_STEP_INCREASE_DEFAULT = 1.5;
+    private static final Logger log = Logger.getLogger(QueryRewriter.class);
 
     /**
      * The different methods for estimating the join cost.
      */
     public static enum CostEstimator { SIZE, SELECTIVITY, HISTOGRAM }
-
-    /**
-     * Whether we should use histograms or column selectivity to estimate the join size.
-     */
-    public static final String COST_ESTIMATOR_KEY = CONFIG_PREFIX + ".costestimator";
-    public static final String COST_ESTIMATOR_DEFAULT = CostEstimator.HISTOGRAM.toString();
-
 
     private double allowedTotalCostIncrease;
     private double allowedStepCostIncrease;
@@ -79,9 +56,9 @@ public class QueryRewriter {
     private CostEstimator costEstimator;
 
     public QueryRewriter() {
-        allowedTotalCostIncrease = Config.getDouble(ALLOWED_TOTAL_INCREASE_KEY, ALLOWED_TOTAL_INCREASE_DEFAULT);
-        allowedStepCostIncrease = Config.getDouble(ALLOWED_STEP_INCREASE_KEY, ALLOWED_STEP_INCREASE_DEFAULT);
-        costEstimator = CostEstimator.valueOf(Config.getString(COST_ESTIMATOR_KEY, COST_ESTIMATOR_DEFAULT).toUpperCase());
+        allowedTotalCostIncrease = Options.QR_ALLOWED_TOTAL_INCREASE.getDouble();
+        allowedStepCostIncrease = Options.QR_ALLOWED_STEP_INCREASE.getDouble();
+        costEstimator = CostEstimator.valueOf(Options.QR_COST_ESTIMATOR.getString().toUpperCase());
     }
 
     /**
@@ -128,10 +105,6 @@ public class QueryRewriter {
                         bestCost = cost;
                     }
                 }
-            }
-
-            if (bestAtom == null) {
-                break;
             }
 
             // We couldn't find any viable plans.

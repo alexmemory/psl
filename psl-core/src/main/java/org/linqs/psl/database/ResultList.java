@@ -1,7 +1,7 @@
 /*
  * This file is part of the PSL software.
  * Copyright 2011-2015 University of Maryland
- * Copyright 2013-2019 The Regents of the University of California
+ * Copyright 2013-2022 The Regents of the University of California
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -27,11 +27,10 @@ import java.util.Map;
  * List of substitutions for {@link Variable Variables} in a {@link Formula}.
  */
 public interface ResultList extends QueryResultIterable {
-
     /**
      * @return the number of sets of substitutions in the list
      */
-    public int size();
+    public long size();
 
     /**
      * @return the number of distinct {@link Variable Variables} replaced in

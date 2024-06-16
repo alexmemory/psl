@@ -1,7 +1,7 @@
 /*
  * This file is part of the PSL software.
  * Copyright 2011-2015 University of Maryland
- * Copyright 2013-2019 The Regents of the University of California
+ * Copyright 2013-2022 The Regents of the University of California
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -17,19 +17,27 @@
  */
 package org.linqs.psl.reasoner.admm.term;
 
-import org.linqs.psl.grounding.GroundRuleStore;
 import org.linqs.psl.model.rule.GroundRule;
+import org.linqs.psl.model.rule.Rule;
+import org.linqs.psl.model.rule.arithmetic.AbstractArithmeticRule;
 import org.linqs.psl.reasoner.function.FunctionComparator;
 import org.linqs.psl.reasoner.term.Hyperplane;
 import org.linqs.psl.reasoner.term.HyperplaneTermGenerator;
 import org.linqs.psl.reasoner.term.TermStore;
+import org.linqs.psl.util.MathUtils;
+
+import java.util.Collection;
 
 /**
  * A TermGenerator for ADMM objective terms.
  */
 public class ADMMTermGenerator extends HyperplaneTermGenerator<ADMMObjectiveTerm, LocalVariable> {
     public ADMMTermGenerator() {
-        super();
+        this(true);
+    }
+
+    public ADMMTermGenerator(boolean mergeConstants) {
+        super(mergeConstants);
     }
 
     @Override
@@ -38,23 +46,60 @@ public class ADMMTermGenerator extends HyperplaneTermGenerator<ADMMObjectiveTerm
     }
 
     @Override
-    public ADMMObjectiveTerm createLossTerm(TermStore<ADMMObjectiveTerm, LocalVariable> termStore,
+    public int createLossTerm(Collection<ADMMObjectiveTerm> newTerms, TermStore<ADMMObjectiveTerm, LocalVariable> termStore,
             boolean isHinge, boolean isSquared, GroundRule groundRule, Hyperplane<LocalVariable> hyperplane) {
         if (isHinge && isSquared) {
-            return new SquaredHingeLossTerm(groundRule, hyperplane);
+            newTerms.add(ADMMObjectiveTerm.createSquaredHingeLossTerm(hyperplane, groundRule.getRule()));
         } else if (isHinge && !isSquared) {
-            return new HingeLossTerm(groundRule, hyperplane);
+            newTerms.add(ADMMObjectiveTerm.createHingeLossTerm(hyperplane, groundRule.getRule()));
         } else if (!isHinge && isSquared) {
-            hyperplane.setConstant(0.0f);
-            return new SquaredLinearLossTerm(groundRule, hyperplane);
+            newTerms.add(ADMMObjectiveTerm.createSquaredLinearLossTerm(hyperplane, groundRule.getRule()));
         } else {
-            return new LinearLossTerm(groundRule, hyperplane);
+            newTerms.add(ADMMObjectiveTerm.createLinearLossTerm(hyperplane, groundRule.getRule()));
         }
+
+        return 1;
     }
 
     @Override
-    public ADMMObjectiveTerm createLinearConstraintTerm(TermStore<ADMMObjectiveTerm, LocalVariable> termStore,
+    public int createLinearConstraintTerm(Collection<ADMMObjectiveTerm> newTerms, TermStore<ADMMObjectiveTerm, LocalVariable> termStore,
             GroundRule groundRule, Hyperplane<LocalVariable> hyperplane, FunctionComparator comparator) {
-        return new LinearConstraintTerm(groundRule, hyperplane, comparator);
+        newTerms.add(ADMMObjectiveTerm.createLinearConstraintTerm(hyperplane, groundRule.getRule(), comparator));
+        if (!addDeterTerms) {
+            return 1;
+        }
+
+        Rule rawRule = groundRule.getRule();
+        if (rawRule == null || !(rawRule instanceof AbstractArithmeticRule)) {
+            return 1;
+        }
+
+        AbstractArithmeticRule rule = (AbstractArithmeticRule)rawRule;
+        if (!rule.getExpression().looksLikeFunctionalConstraint()) {
+            return 1;
+        }
+
+        if (collectiveDeter) {
+            newTerms.add(ADMMObjectiveTerm.createCollectiveDeterTerm(hyperplane, deterWeight, deterEpsilon));
+            return 2;
+        }
+
+        float activeDeterConstant = deterConstant;
+        if (MathUtils.isZero(activeDeterConstant)) {
+            // If the provided deter value is zero, then compute one.
+            activeDeterConstant = 1.0f / hyperplane.size();
+        }
+
+        // Make independent hyperplanes for each variable in the constant.
+        for (int i = 0; i < hyperplane.size(); i++) {
+            Hyperplane<LocalVariable> independentHyperplane = new Hyperplane<LocalVariable>(
+                    new LocalVariable[]{hyperplane.getVariable(i)},
+                    new float[]{1.0f},
+                    0.0f, 1);
+
+            newTerms.add(ADMMObjectiveTerm.createIndependentDeterTerm(independentHyperplane, deterWeight, activeDeterConstant));
+        }
+
+        return 1 + hyperplane.size();
     }
 }

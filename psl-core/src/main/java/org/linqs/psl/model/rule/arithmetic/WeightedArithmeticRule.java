@@ -1,7 +1,7 @@
 /*
  * This file is part of the PSL software.
  * Copyright 2011-2015 University of Maryland
- * Copyright 2013-2019 The Regents of the University of California
+ * Copyright 2013-2022 The Regents of the University of California
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -23,31 +23,30 @@ import org.linqs.psl.model.rule.WeightedRule;
 import org.linqs.psl.model.rule.arithmetic.expression.ArithmeticRuleExpression;
 import org.linqs.psl.model.rule.arithmetic.expression.SummationVariable;
 import org.linqs.psl.reasoner.function.FunctionComparator;
-import org.linqs.psl.util.MathUtils;
 
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 
 public class WeightedArithmeticRule extends AbstractArithmeticRule implements WeightedRule {
-    protected double weight;
+    protected float weight;
     protected boolean squared;
 
-    public WeightedArithmeticRule(ArithmeticRuleExpression expression, double weight, boolean squared) {
+    public WeightedArithmeticRule(ArithmeticRuleExpression expression, float weight, boolean squared) {
         this(expression, weight, squared, expression.toString());
     }
 
-    public WeightedArithmeticRule(ArithmeticRuleExpression expression, double weight, boolean squared, String name) {
+    public WeightedArithmeticRule(ArithmeticRuleExpression expression, float weight, boolean squared, String name) {
         this(expression, new HashMap<SummationVariable, Formula>(), weight, squared, name);
     }
 
     public WeightedArithmeticRule(ArithmeticRuleExpression expression, Map<SummationVariable, Formula> filterClauses,
-            double weight, boolean squared) {
+            float weight, boolean squared) {
         this(expression, filterClauses, weight, squared, expression.toString());
     }
 
     public WeightedArithmeticRule(ArithmeticRuleExpression expression, Map<SummationVariable, Formula> filterClauses,
-            double weight, boolean squared, String name) {
+            float weight, boolean squared, String name) {
         super(expression, filterClauses, name);
 
         this.weight = weight;
@@ -72,12 +71,12 @@ public class WeightedArithmeticRule extends AbstractArithmeticRule implements We
     }
 
     @Override
-    public double getWeight() {
+    public float getWeight() {
         return weight;
     }
 
     @Override
-    public void setWeight(double weight) {
+    public void setWeight(float weight) {
         this.weight = weight;
     }
 
@@ -115,7 +114,7 @@ public class WeightedArithmeticRule extends AbstractArithmeticRule implements We
         }
 
         WeightedArithmeticRule otherRule = (WeightedArithmeticRule)other;
-        if (this.squared != otherRule.squared || !MathUtils.equals(this.weight, otherRule.weight)) {
+        if (this.squared != otherRule.squared) {
             return false;
         }
 

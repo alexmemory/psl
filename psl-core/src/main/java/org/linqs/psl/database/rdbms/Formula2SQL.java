@@ -1,7 +1,7 @@
 /*
  * This file is part of the PSL software.
  * Copyright 2011-2015 University of Maryland
- * Copyright 2013-2019 The Regents of the University of California
+ * Copyright 2013-2022 The Regents of the University of California
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -32,16 +32,17 @@ import org.linqs.psl.model.term.Term;
 import org.linqs.psl.model.term.UniqueIntID;
 import org.linqs.psl.model.term.UniqueStringID;
 import org.linqs.psl.model.term.Variable;
+import org.linqs.psl.model.term.VariableTypeMap;
 
 import com.healthmarketscience.sqlbuilder.BinaryCondition;
 import com.healthmarketscience.sqlbuilder.CustomSql;
-import com.healthmarketscience.sqlbuilder.FunctionCall;
 import com.healthmarketscience.sqlbuilder.InCondition;
 import com.healthmarketscience.sqlbuilder.SelectQuery;
 
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
@@ -72,7 +73,7 @@ public class Formula2SQL {
     private final Map<Variable, Integer> projectionMap;
 
     private final List<Integer> partitions;
-    private final Atom lazyTarget;
+    private final List<Atom> partialTargets;
 
     private int tableCounter;
 
@@ -99,15 +100,15 @@ public class Formula2SQL {
 
     /**
      * See above description.
-     * @param lazyTarget if this is non-null, then this formula will be treated as a partial grounding query.
-     *  This means that we will treat Partition.LAZY_PARTITION_ID as a valid partition, and this atom
-     *  will be exclusivley drawn from Partition.LAZY_PARTITION_ID.
-     *  We will do a DIRECT REFERENCE comparison against atoms in the formual to check for this specific one.
+     * @param partialTargets if this is non-null, then this formula will be treated as a partial grounding query.
+     * This means that we will treat special partitions (with a negative id) as valid partitions,
+     * and these atoms will be exclusively drawn from the special partitions.
+     * We will do a DIRECT REFERENCE comparison against atoms in the formula to check for this specific one.
      */
-    public Formula2SQL(Set<Variable> projection, RDBMSDatabase database, boolean isDistinct, Atom lazyTarget) {
+    public Formula2SQL(Set<Variable> projection, RDBMSDatabase database, boolean isDistinct, List<Atom> partialTargets) {
         this.projection = projection;
         this.database = database;
-        this.lazyTarget = lazyTarget;
+        this.partialTargets = partialTargets;
 
         joins = new HashMap<Variable, String>();
         tableAliases = new HashMap<Atom, String>();
@@ -118,20 +119,20 @@ public class Formula2SQL {
         query = new SelectQuery();
         query.setIsDistinct(isDistinct);
 
+        if (projection == null) {
+            projection = new HashSet<Variable>(0);
+        }
+
         if (projection.isEmpty()) {
             query.addAllColumns();
         }
 
-        // Query all of the read (and the write) partition(s) belonging to the database
+        // Query all of the read (and the write) partition(s) belonging to the database.
         partitions = new ArrayList<Integer>(database.getReadPartitions().size() + 1);
         for (Partition partition : database.getReadPartitions()) {
             partitions.add(partition.getID());
         }
         partitions.add(database.getWritePartition().getID());
-
-        if (lazyTarget != null) {
-            partitions.add(Partition.LAZY_PARTITION_ID);
-        }
     }
 
     public List<Atom> getFunctionalAtoms() {
@@ -170,11 +171,11 @@ public class Formula2SQL {
         } else if (atom.getPredicate() instanceof GroundingOnlyPredicate) {
             GroundingOnlyPredicate predicate = (GroundingOnlyPredicate)atom.getPredicate();
 
-            if (predicate == GroundingOnlyPredicate.NotEqual) {
+            if (predicate.equals(GroundingOnlyPredicate.NotEqual)) {
                 query.addCondition(BinaryCondition.notEqualTo(convert[0], convert[1]));
-            } else if (predicate == GroundingOnlyPredicate.Equal) {
+            } else if (predicate.equals(GroundingOnlyPredicate.Equal)) {
                 query.addCondition(BinaryCondition.equalTo(convert[0], convert[1]));
-            } else if (predicate == GroundingOnlyPredicate.NonSymmetric) {
+            } else if (predicate.equals(GroundingOnlyPredicate.NonSymmetric)) {
                 query.addCondition(BinaryCondition.lessThan(convert[0], convert[1], false));
             } else {
                 throw new UnsupportedOperationException("Unrecognized GroundingOnlyPredicate: " + predicate);
@@ -201,7 +202,7 @@ public class Formula2SQL {
             if (arg instanceof Attribute) {
                 convert[i] = ((Attribute)arg).getValue();
             } else if (arg instanceof UniqueIntID) {
-                convert[i] = new Integer(((UniqueIntID)arg).getID());
+                convert[i] = Integer.valueOf(((UniqueIntID)arg).getID());
             } else if (arg instanceof UniqueStringID) {
                 convert[i] = ((UniqueStringID)arg).getID();
             } else {
@@ -256,7 +257,7 @@ public class Formula2SQL {
                 if (arg instanceof Attribute) {
                     value = ((Attribute)arg).getValue();
                 } else if (arg instanceof UniqueIntID) {
-                    value = new Integer(((UniqueIntID)arg).getID());
+                    value = Integer.valueOf(((UniqueIntID)arg).getID());
                 } else {
                     value = ((UniqueStringID)arg).getID();
                 }
@@ -272,10 +273,10 @@ public class Formula2SQL {
         }
 
         // Make sure to limit the partitions.
-        // Most atoms get to choose from anywhere, lazy atoms can only come from the lazy partition.
+        // Most atoms get to choose from anywhere, partial target atoms can only come from a special partition.
         CustomSql partitionColumn = new CustomSql(tableAlias + "." + PredicateInfo.PARTITION_COLUMN_NAME);
-        if (atom == lazyTarget) {
-            query.addCondition(BinaryCondition.equalTo(partitionColumn, Partition.LAZY_PARTITION_ID));
+        if ((partialTargets != null) && (partialTargets.contains(atom))) {
+            query.addCondition(BinaryCondition.lessThan(partitionColumn, 0));
         } else {
             query.addCondition(new InCondition(partitionColumn, partitions));
         }
@@ -284,7 +285,7 @@ public class Formula2SQL {
     }
 
     /**
-     * Recursively traverse a formual to build a query from it.
+     * Recursively traverse a formula to build a query from it.
      */
     private void traverse(Formula formula) {
         if (formula instanceof Conjunction) {
@@ -305,5 +306,17 @@ public class Formula2SQL {
 
     private String escapeSingleQuotes(String s) {
         return s.replaceAll("'", "''");
+    }
+
+    /**
+     * A static shortcut for when only the SQL string is required.
+     */
+    public static String getQuery(Formula formula, RDBMSDatabase database, boolean isDistinct) {
+        VariableTypeMap varTypes = formula.collectVariables(new VariableTypeMap());
+        Set<Variable> projection = new HashSet<Variable>(varTypes.getVariables());
+
+        Formula2SQL sqler = new Formula2SQL(projection, database, isDistinct, null);
+
+        return sqler.getSQL(formula);
     }
 }

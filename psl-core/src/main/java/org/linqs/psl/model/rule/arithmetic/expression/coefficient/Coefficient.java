@@ -1,7 +1,7 @@
 /*
  * This file is part of the PSL software.
  * Copyright 2011-2015 University of Maryland
- * Copyright 2013-2019 The Regents of the University of California
+ * Copyright 2013-2022 The Regents of the University of California
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -17,6 +17,7 @@
  */
 package org.linqs.psl.model.rule.arithmetic.expression.coefficient;
 
+import java.io.Serializable;
 import java.util.Map;
 import java.util.Set;
 
@@ -26,12 +27,14 @@ import org.linqs.psl.model.term.Constant;
 
 /**
  * Numeric coefficient in a {@link ArithmeticRuleExpression}.
- * <p>
+ *
  * Coefficient and its subclasses are composable to represent complex definitions.
  * Its subclasses are defined as inner classes, because there are
  * a lot of them and they are simple.
+ *
+ * All coefficients should define a hashCode(), as it will be used in equality checks.
  */
-public abstract class Coefficient {
+public abstract class Coefficient implements Serializable {
     /**
      * Get the value of a coefficient (which may require a reqursive descent).
      * For performance reasons, instead of passing the full subtitution set to this method,
@@ -45,4 +48,19 @@ public abstract class Coefficient {
      * Get a simplified version of this Coefficient, the Coefficient itself if it cannot be simplified further.
      */
     public abstract Coefficient simplify();
+
+    public abstract int hashCode();
+
+    @Override
+    public boolean equals(Object other) {
+        if (this == other) {
+            return true;
+        }
+
+        if (other == null || this.getClass() != other.getClass()) {
+            return false;
+        }
+
+        return this.hashCode() == ((Coefficient)other).hashCode();
+    }
 }
