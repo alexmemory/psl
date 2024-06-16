@@ -1,7 +1,7 @@
 /*
  * This file is part of the PSL software.
  * Copyright 2011-2015 University of Maryland
- * Copyright 2013-2022 The Regents of the University of California
+ * Copyright 2013-2023 The Regents of the University of California
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -38,8 +38,7 @@ import java.util.HashSet;
 import java.util.Set;
 
 /**
- * A {@link Predicate} combined with the correct number of {@link Term Terms}
- * as arguments.
+ * A Predicate combined with the correct number of Terms as arguments.
  *
  * Two Atoms are equal if their Predicate and arguments are equal. Note that this
  * means that their truth values might not match, or one might even be a
@@ -127,8 +126,8 @@ public abstract class Atom implements Formula, SummationAtomOrAtom {
     }
 
     /**
-     * Whether this atom is managed by an AtomManager.
-     * Only in very rare cases do we have unmanaged atoms.
+     * Whether this atom is managed by an AtomStore.
+     * Only in rare cases do we have unmanaged atoms.
      */
     public boolean isManaged() {
         return true;

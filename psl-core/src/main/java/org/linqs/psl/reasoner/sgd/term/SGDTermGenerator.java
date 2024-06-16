@@ -1,7 +1,7 @@
 /*
  * This file is part of the PSL software.
  * Copyright 2011-2015 University of Maryland
- * Copyright 2013-2022 The Regents of the University of California
+ * Copyright 2013-2023 The Regents of the University of California
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -17,16 +17,11 @@
  */
 package org.linqs.psl.reasoner.sgd.term;
 
-import org.linqs.psl.model.atom.GroundAtom;
 import org.linqs.psl.model.rule.GroundRule;
-import org.linqs.psl.model.rule.Rule;
 import org.linqs.psl.model.rule.WeightedGroundRule;
-import org.linqs.psl.model.rule.arithmetic.AbstractArithmeticRule;
 import org.linqs.psl.reasoner.function.FunctionComparator;
 import org.linqs.psl.reasoner.term.Hyperplane;
-import org.linqs.psl.reasoner.term.HyperplaneTermGenerator;
-import org.linqs.psl.reasoner.term.TermStore;
-import org.linqs.psl.reasoner.term.VariableTermStore;
+import org.linqs.psl.reasoner.term.TermGenerator;
 import org.linqs.psl.util.Logger;
 
 import java.util.Collection;
@@ -34,55 +29,39 @@ import java.util.Collection;
 /**
  * A TermGenerator for SGD objective terms.
  */
-public class SGDTermGenerator extends HyperplaneTermGenerator<SGDObjectiveTerm, GroundAtom> {
+public class SGDTermGenerator extends TermGenerator<SGDObjectiveTerm> {
     private static final Logger log = Logger.getLogger(SGDTermGenerator.class);
 
+    private boolean warnOnConstraint;
+
     public SGDTermGenerator() {
-        this(true);
+        this(true, true);
     }
 
-    public SGDTermGenerator(boolean mergeConstants) {
+    public SGDTermGenerator(boolean mergeConstants, boolean warnOnConstraint) {
         super(mergeConstants);
+        this.warnOnConstraint = warnOnConstraint;
+    }
+
+    public void setWarnOnConstraint(boolean warn) {
+        warnOnConstraint = warn;
     }
 
     @Override
-    public Class<GroundAtom> getLocalVariableType() {
-        return GroundAtom.class;
+    public int createLossTerm(Collection<SGDObjectiveTerm> newTerms,
+            boolean isHinge, boolean isSquared, GroundRule groundRule, Hyperplane hyperplane) {
+        newTerms.add(new SGDObjectiveTerm(((WeightedGroundRule)groundRule).getRule(), isSquared, isHinge, hyperplane));
+        return 1;
     }
 
     @Override
-    public int createLossTerm(Collection<SGDObjectiveTerm> newTerms, TermStore<SGDObjectiveTerm, GroundAtom> baseTermStore,
-            boolean isHinge, boolean isSquared, GroundRule groundRule, Hyperplane<GroundAtom> hyperplane) {
-        VariableTermStore<SGDObjectiveTerm, GroundAtom> termStore = (VariableTermStore<SGDObjectiveTerm, GroundAtom>)baseTermStore;
-
-        newTerms.add(new SGDObjectiveTerm(termStore, ((WeightedGroundRule)groundRule).getRule(), isSquared, isHinge, hyperplane));
-        if (!addDeterTerms) {
-            return 1;
+    public int createLinearConstraintTerm(Collection<SGDObjectiveTerm> newTerms,
+            GroundRule groundRule, Hyperplane hyperplane, FunctionComparator comparator) {
+        if (warnOnConstraint) {
+            log.warn("SGD does not support hard constraints, i.e. " + groundRule);
+            warnOnConstraint = false;
         }
 
-        Rule rawRule = groundRule.getRule();
-        if (rawRule == null || !(rawRule instanceof AbstractArithmeticRule)) {
-            return 1;
-        }
-
-        AbstractArithmeticRule rule = (AbstractArithmeticRule)rawRule;
-        if (!rule.getExpression().looksLikeFunctionalConstraint()) {
-            return 1;
-        }
-
-        if (collectiveDeter) {
-            newTerms.add(SGDObjectiveTerm.createDeterTerm(termStore, hyperplane, deterWeight, deterEpsilon));
-            return 2;
-        }
-
-        // TODO(eriq): Implement SGD independent deter terms.
-        throw new UnsupportedOperationException("Independent SGD deter terms are not yet supported.");
-    }
-
-    @Override
-    public int createLinearConstraintTerm(Collection<SGDObjectiveTerm> newTerms, TermStore<SGDObjectiveTerm, GroundAtom> termStore,
-            GroundRule groundRule, Hyperplane<GroundAtom> hyperplane, FunctionComparator comparator) {
-        log.warn("SGD does not support hard constraints, i.e. " + groundRule);
         return 0;
     }
 }

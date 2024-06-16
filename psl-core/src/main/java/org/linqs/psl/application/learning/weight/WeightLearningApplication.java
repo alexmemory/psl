@@ -1,7 +1,7 @@
 /*
  * This file is part of the PSL software.
  * Copyright 2011-2015 University of Maryland
- * Copyright 2013-2022 The Regents of the University of California
+ * Copyright 2013-2023 The Regents of the University of California
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -21,7 +21,10 @@ import org.linqs.psl.application.ModelApplication;
 import org.linqs.psl.application.inference.InferenceApplication;
 import org.linqs.psl.config.Options;
 import org.linqs.psl.database.Database;
-import org.linqs.psl.evaluation.statistics.Evaluator;
+import org.linqs.psl.evaluation.EvaluationInstance;
+import org.linqs.psl.model.deep.DeepModelPredicate;
+import org.linqs.psl.model.predicate.DeepPredicate;
+import org.linqs.psl.model.predicate.Predicate;
 import org.linqs.psl.model.rule.Rule;
 import org.linqs.psl.model.rule.WeightedRule;
 import org.linqs.psl.util.Logger;
@@ -48,29 +51,52 @@ public abstract class WeightLearningApplication implements ModelApplication {
 
     private static final Logger log = Logger.getLogger(WeightLearningApplication.class);
 
-    protected Database rvDB;
-    protected Database observedDB;
+    protected Database trainTargetDatabase;
+    protected Database trainTruthDatabase;
+
+    protected Database validationTargetDatabase;
+    protected Database validationTruthDatabase;
+
+    protected List<DeepPredicate> deepPredicates;
+    protected List<DeepModelPredicate> deepModelPredicates;
+    protected List<DeepModelPredicate> validationDeepModelPredicates;
+
+    protected boolean runValidation;
 
     protected List<Rule> allRules;
     protected List<WeightedRule> mutableRules;
 
     protected TrainingMap trainingMap;
+    protected TrainingMap validationMap;
 
-    protected InferenceApplication inference;
-    protected Evaluator evaluator;
+    protected InferenceApplication trainInferenceApplication;
+    protected InferenceApplication validationInferenceApplication;
+
+    protected EvaluationInstance evaluation;
 
     private boolean groundModelInit;
 
     /**
      * Flags to track if the current variable configuration is an MPE state.
-     * This will get set to true when computeMPEState is called,
+     * This will get set to true when computeTrainingMAPState is called,
      * but besides that it is up to children to set to false when weights are changed.
      */
-    protected boolean inMPEState;
+    protected boolean inTrainingMAPState;
+    protected boolean inValidationMAPState;
 
-    public WeightLearningApplication(List<Rule> rules, Database rvDB, Database observedDB) {
-        this.rvDB = rvDB;
-        this.observedDB = observedDB;
+    public WeightLearningApplication(List<Rule> rules, Database trainTargetDatabase, Database trainTruthDatabase,
+                                     Database validationTargetDatabase, Database validationTruthDatabase, Boolean runValidation) {
+        this.trainTargetDatabase = trainTargetDatabase;
+        this.trainTruthDatabase = trainTruthDatabase;
+
+        this.validationTargetDatabase = validationTargetDatabase;
+        this.validationTruthDatabase = validationTruthDatabase;
+
+        this.runValidation = runValidation;
+
+        deepPredicates = new ArrayList<DeepPredicate>();
+        deepModelPredicates = new ArrayList<DeepModelPredicate>();
+        validationDeepModelPredicates = new ArrayList<DeepModelPredicate>();
 
         allRules = new ArrayList<Rule>();
         mutableRules = new ArrayList<WeightedRule>();
@@ -83,10 +109,22 @@ public abstract class WeightLearningApplication implements ModelApplication {
             }
         }
 
-        groundModelInit = false;
-        inMPEState = false;
+        trainInferenceApplication = null;
+        validationInferenceApplication = null;
 
-        evaluator = (Evaluator)Options.WLA_EVAL.getNewObject();
+        trainingMap = null;
+        validationMap = null;
+
+        groundModelInit = false;
+
+        inTrainingMAPState = false;
+        inValidationMAPState = false;
+
+        evaluation = null;
+    }
+
+    public void setEvaluation(EvaluationInstance evaluation) {
+        this.evaluation = evaluation;
     }
 
     /**
@@ -113,11 +151,7 @@ public abstract class WeightLearningApplication implements ModelApplication {
      * Child implementations should make sure to override this and call up the super chain.
      */
     public void setBudget(double budget) {
-        inference.setBudget(budget);
-    }
-
-    public InferenceApplication getInferenceApplication() {
-        return inference;
+        trainInferenceApplication.setBudget(budget);
     }
 
     /**
@@ -129,17 +163,23 @@ public abstract class WeightLearningApplication implements ModelApplication {
             return;
         }
 
-        InferenceApplication inference = InferenceApplication.getInferenceApplication(Options.WLA_INFERENCE.getString(), allRules, rvDB);
-        initGroundModel(inference);
+        InferenceApplication trainInferenceApplication = InferenceApplication.getInferenceApplication(Options.WLA_INFERENCE.getString(), allRules, trainTargetDatabase);
+        trainInferenceApplication.loadDeepPredicates("learning");
+
+        InferenceApplication validationInferenceApplication = InferenceApplication.getInferenceApplication(Options.WLA_INFERENCE.getString(), allRules, validationTargetDatabase);
+
+        initGroundModel(trainInferenceApplication, validationInferenceApplication);
     }
 
-    private void initGroundModel(InferenceApplication inference) {
+    private void initGroundModel(InferenceApplication trainInferenceApplication, InferenceApplication validationInferenceApplication) {
         if (groundModelInit) {
             return;
         }
 
-        TrainingMap trainingMap = new TrainingMap(inference.getAtomManager(), observedDB);
-        initGroundModel(inference, trainingMap);
+        TrainingMap trainingMap = new TrainingMap(trainInferenceApplication.getDatabase(), trainTruthDatabase);
+        TrainingMap validationMap = new TrainingMap(validationInferenceApplication.getDatabase(), validationTruthDatabase);
+
+        initGroundModel(trainInferenceApplication, trainingMap, validationInferenceApplication, validationMap);
     }
 
     /**
@@ -147,16 +187,31 @@ public abstract class WeightLearningApplication implements ModelApplication {
      * The caller should be careful calling this method instead of the other variants.
      * Children should favor overriding postInitGroundModel() instead of this.
      */
-    public void initGroundModel(InferenceApplication inference, TrainingMap trainingMap) {
+    public void initGroundModel(InferenceApplication trainInferenceApplication, TrainingMap trainingMap,
+                                InferenceApplication validationInferenceApplication, TrainingMap validationMap) {
         if (groundModelInit) {
             return;
         }
 
-        this.inference = inference;
+        this.trainInferenceApplication = trainInferenceApplication;
         this.trainingMap = trainingMap;
+
+        this.validationInferenceApplication = validationInferenceApplication;
+        this.validationMap = validationMap;
 
         if (Options.WLA_RANDOM_WEIGHTS.getBoolean()) {
             initRandomWeights();
+        }
+
+        for (Predicate predicate : Predicate.getAll()) {
+            if (predicate instanceof DeepPredicate) {
+                deepPredicates.add((DeepPredicate)predicate);
+                deepModelPredicates.add(((DeepPredicate)predicate).getDeepModel());
+
+                DeepModelPredicate validationDeepModelPredicate = ((DeepPredicate)predicate).getDeepModel().copy();
+                validationDeepModelPredicate.setAtomStore(validationInferenceApplication.getDatabase().getAtomStore(), true);
+                validationDeepModelPredicates.add(validationDeepModelPredicate);
+            }
         }
 
         postInitGroundModel();
@@ -180,29 +235,53 @@ public abstract class WeightLearningApplication implements ModelApplication {
     /**
      * Run inference.
      * Note that atoms will not be committed to the database until weight learning is closed.
-     * A explicit call can be made to the inference application to override this functionality.
+     * An explicit call can be made to the inference application to override this functionality.
      */
-    @SuppressWarnings("unchecked")
-    protected void computeMPEState() {
-        if (inMPEState) {
+    protected void computeTrainingMAPState() {
+        if (inTrainingMAPState) {
             return;
         }
 
-        inference.inference(false, true);
-        inMPEState = true;
+        computeMAPState(trainInferenceApplication);
+
+        inTrainingMAPState = true;
+    }
+
+    protected void computeValidationMAPState() {
+        if (inValidationMAPState) {
+            return;
+        }
+
+        computeMAPState(validationInferenceApplication);
+
+        inValidationMAPState = true;
+    }
+
+    protected void computeMAPState(InferenceApplication inferenceApplication) {
+        inferenceApplication.inference(false, true);
     }
 
     @Override
     public void close() {
-        if (inference != null) {
-            inference.commit();
-            inference.close();
-            inference = null;
+        if (trainInferenceApplication != null) {
+            trainInferenceApplication.commit();
+            trainInferenceApplication.close();
+            trainInferenceApplication = null;
+        }
+
+        if (validationInferenceApplication != null) {
+            validationInferenceApplication.commit();
+            validationInferenceApplication.close();
+            validationInferenceApplication = null;
         }
 
         trainingMap = null;
-        rvDB = null;
-        observedDB = null;
+        trainTargetDatabase = null;
+        trainTruthDatabase = null;
+
+        validationMap = null;
+        validationTargetDatabase = null;
+        validationTruthDatabase = null;
     }
 
     /**
@@ -210,7 +289,8 @@ public abstract class WeightLearningApplication implements ModelApplication {
      * Look for a constructor like: (List<Rule>, Database (rv), Database (observed)).
      */
     public static WeightLearningApplication getWLA(String name, List<Rule> rules,
-            Database randomVariableDatabase, Database observedTruthDatabase) {
+                                                   Database trainTargetDatabase, Database trainTruthDatabase,
+                                                   Database validationTargetDatabase, Database validationTruthDatabase, boolean runValidation) {
         String className = Reflection.resolveClassName(name);
         if (className == null) {
             throw new IllegalArgumentException("Could not find class: " + name);
@@ -227,14 +307,15 @@ public abstract class WeightLearningApplication implements ModelApplication {
 
         Constructor<? extends WeightLearningApplication> constructor = null;
         try {
-            constructor = classObject.getConstructor(List.class, Database.class, Database.class);
+            constructor = classObject.getConstructor(List.class, Database.class, Database.class, Database.class, Database.class, boolean.class);
         } catch (NoSuchMethodException ex) {
             throw new IllegalArgumentException("No suitable constructor found for weight learner: " + className + ".", ex);
         }
 
         WeightLearningApplication wla = null;
         try {
-            wla = constructor.newInstance(rules, randomVariableDatabase, observedTruthDatabase);
+            wla = constructor.newInstance(rules, trainTargetDatabase, trainTruthDatabase,
+                    validationTargetDatabase, validationTruthDatabase, runValidation);
         } catch (InstantiationException ex) {
             throw new RuntimeException("Unable to instantiate weight learner (" + className + ")", ex);
         } catch (IllegalAccessException ex) {

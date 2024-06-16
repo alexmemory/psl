@@ -1,7 +1,7 @@
 /*
  * This file is part of the PSL software.
  * Copyright 2011-2015 University of Maryland
- * Copyright 2013-2022 The Regents of the University of California
+ * Copyright 2013-2023 The Regents of the University of California
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -20,7 +20,6 @@ package org.linqs.psl.database;
 import org.linqs.psl.database.DataStore;
 import org.linqs.psl.database.Database;
 import org.linqs.psl.database.DatabaseQuery;
-import org.linqs.psl.database.ReadableDatabase;
 import org.linqs.psl.database.ResultList;
 import org.linqs.psl.database.loading.Inserter;
 import org.linqs.psl.database.rdbms.PredicateInfo;
@@ -113,11 +112,11 @@ public abstract class DataStoreTest extends PSLBaseTest {
 
         functionalPredicate1 = ExternalFunctionalPredicate.get("FP1", new ExternalFunction() {
             @Override
-            public double getValue(ReadableDatabase db, Constant... args) {
+            public float getValue(Database db, Constant... args) {
                 double a = ((DoubleAttribute) args[0]).getValue();
                 double b = ((DoubleAttribute) args[1]).getValue();
 
-                return Math.max(0.0, Math.min(1.0, (a + b) / 2));
+                return (float)Math.max(0.0f, Math.min(1.0f, (a + b) / 2.0f));
             }
 
             @Override
@@ -165,28 +164,28 @@ public abstract class DataStoreTest extends PSLBaseTest {
         UniqueIntID c = new UniqueIntID(2);
         UniqueIntID d = new UniqueIntID(3);
 
-        inserter.insert(a, b);
-        inserter.insertValue(0.5, b, c);
-        inserter.insertValue(0.25, c, d);
+        inserter.insertRaw(a, b);
+        inserter.insertValueRaw(0.5, b, c);
+        inserter.insertValueRaw(0.25, c, d);
 
         Database db;
         GroundAtom atom;
 
         // Tests open predicate with atoms in write partition.
         db = datastore.getDatabase(datastore.getPartition("0"));
-        atom = db.getAtom(p1, a, b);
+        atom = db.getAtomStore().getAtom(p1, a, b);
         assertEquals(1.0, atom.getValue(), 0.0);
         assertTrue(atom instanceof RandomVariableAtom);
 
-        atom = db.getAtom(p1, b, c);
+        atom = db.getAtomStore().getAtom(p1, b, c);
         assertEquals(0.5, atom.getValue(), 0.0);
         assertTrue(atom instanceof RandomVariableAtom);
 
-        atom = db.getAtom(p1, c, d);
+        atom = db.getAtomStore().getAtom(p1, c, d);
         assertEquals(0.25, atom.getValue(), 0.0);
         assertTrue(atom instanceof RandomVariableAtom);
 
-        atom = db.getAtom(p1, d, a);
+        atom = db.getAtomStore().getAtom(p1, d, a);
         assertEquals(0.0, atom.getValue(), 0.0);
         assertTrue(atom instanceof RandomVariableAtom);
 
@@ -194,15 +193,15 @@ public abstract class DataStoreTest extends PSLBaseTest {
 
         // Tests open predicate with atoms in read partition.
         db = datastore.getDatabase(datastore.getPartition("1"), datastore.getPartition("0"));
-        atom = db.getAtom(p1, a, b);
+        atom = db.getAtomStore().getAtom(p1, a, b);
         assertEquals(1.0, atom.getValue(), 0.0);
         assertTrue(atom instanceof ObservedAtom);
 
-        atom = db.getAtom(p1, b, c);
+        atom = db.getAtomStore().getAtom(p1, b, c);
         assertEquals(0.5, atom.getValue(), 0.0);
         assertTrue(atom instanceof ObservedAtom);
 
-        atom = db.getAtom(p1, c, d);
+        atom = db.getAtomStore().getAtom(p1, c, d);
         assertEquals(0.25, atom.getValue(), 0.0);
         assertTrue(atom instanceof ObservedAtom);
 
@@ -212,19 +211,19 @@ public abstract class DataStoreTest extends PSLBaseTest {
         Set<StandardPredicate> toClose = new HashSet<StandardPredicate>();
         toClose.add(p1);
         db = datastore.getDatabase(datastore.getPartition("0"), toClose);
-        atom = db.getAtom(p1, a, b);
+        atom = db.getAtomStore().getAtom(p1, a, b);
         assertEquals(1.0, atom.getValue(), 0.0);
         assertTrue(atom instanceof ObservedAtom);
 
-        atom = db.getAtom(p1, b, c);
+        atom = db.getAtomStore().getAtom(p1, b, c);
         assertEquals(0.5, atom.getValue(), 0.0);
         assertTrue(atom instanceof ObservedAtom);
 
-        atom = db.getAtom(p1, c, d);
+        atom = db.getAtomStore().getAtom(p1, c, d);
         assertEquals(0.25, atom.getValue(), 0.0);
         assertTrue(atom instanceof ObservedAtom);
 
-        atom = db.getAtom(p1, d, a);
+        atom = db.getAtomStore().getAtom(p1, d, a);
         assertEquals(0.0, atom.getValue(), 0.0);
         assertTrue(atom instanceof ObservedAtom);
 
@@ -232,15 +231,15 @@ public abstract class DataStoreTest extends PSLBaseTest {
 
         // Tests closed predicate with atoms in read partition.
         db = datastore.getDatabase(datastore.getPartition("1"), toClose, datastore.getPartition("0"));
-        atom = db.getAtom(p1, a, b);
+        atom = db.getAtomStore().getAtom(p1, a, b);
         assertEquals(1.0, atom.getValue(), 0.0);
         assertTrue(atom instanceof ObservedAtom);
 
-        atom = db.getAtom(p1, b, c);
+        atom = db.getAtomStore().getAtom(p1, b, c);
         assertEquals(0.5, atom.getValue(), 0.0);
         assertTrue(atom instanceof ObservedAtom);
 
-        atom = db.getAtom(p1, c, d);
+        atom = db.getAtomStore().getAtom(p1, c, d);
         assertEquals(0.25, atom.getValue(), 0.0);
         assertTrue(atom instanceof ObservedAtom);
 
@@ -257,23 +256,25 @@ public abstract class DataStoreTest extends PSLBaseTest {
 
         UniqueIntID a = new UniqueIntID(0);
         UniqueIntID b = new UniqueIntID(1);
+        Constant[] args = new Constant[]{a, b};
 
-        Database db = datastore.getDatabase(datastore.getPartition("0"));
+        Partition partition = datastore.getPartition("0");
+        Database db = datastore.getDatabase(partition);
 
-        RandomVariableAtom atom = (RandomVariableAtom) db.getAtom(p1, a, b);
-        atom.setValue(0.5f);
-        db.commit(atom);
+        RandomVariableAtom atom = new RandomVariableAtom(p1, args, 0.5f, partition.getID());
+        db.getAtomStore().addAtom(atom);
+        db.getAtomStore().commit();
         db.close();
 
-        db = datastore.getDatabase(datastore.getPartition("0"));
-        atom = (RandomVariableAtom) db.getAtom(p1, a, b);
+        db = datastore.getDatabase(partition);
+        atom = (RandomVariableAtom)db.getAtomStore().getAtom(p1, args);
         assertEquals(0.5f, atom.getValue(), 0.0f);
         atom.setValue(1.0f);
-        db.commit(atom);
+        db.getAtomStore().commit();
         db.close();
 
-        db = datastore.getDatabase(datastore.getPartition("0"));
-        atom = (RandomVariableAtom) db.getAtom(p1, a, b);
+        db = datastore.getDatabase(partition);
+        atom = (RandomVariableAtom)db.getAtomStore().getAtom(p1, args);
         assertEquals(1.0f, atom.getValue(), 0.0f);
         db.close();
     }
@@ -288,26 +289,31 @@ public abstract class DataStoreTest extends PSLBaseTest {
 
         UniqueIntID a = new UniqueIntID(0);
         UniqueIntID b = new UniqueIntID(1);
+        Constant[] args = new Constant[]{a, b};
 
-        Database db = datastore.getDatabase(datastore.getPartition("0"));
-        RandomVariableAtom atom = (RandomVariableAtom) db.getAtom(p1, a, b);
+        Partition partition = datastore.getPartition("0");
+        Database db = datastore.getDatabase(partition);
+
+        RandomVariableAtom atom = new RandomVariableAtom(p1, args, 1.0f, partition.getID());
+        db.getAtomStore().addAtom(atom);
+
         atom.setValue(0.25f);
-        db.commit(atom);
+        db.getAtomStore().commit();
         atom.setValue(0.5f);
-        db.commit(atom);
+        db.getAtomStore().commit();
         db.close();
 
-        db = datastore.getDatabase(datastore.getPartition("0"));
-        atom = (RandomVariableAtom) db.getAtom(p1, a, b);
+        db = datastore.getDatabase(partition);
+        atom = (RandomVariableAtom)db.getAtomStore().getAtom(p1, args);
         assertEquals(0.5f, atom.getValue(), 0.0f);
         atom.setValue(0.75f);
-        db.commit(atom);
+        db.getAtomStore().commit();
         atom.setValue(1.0f);
-        db.commit(atom);
+        db.getAtomStore().commit();
         db.close();
 
-        db = datastore.getDatabase(datastore.getPartition("0"));
-        atom = (RandomVariableAtom) db.getAtom(p1, a, b);
+        db = datastore.getDatabase(partition);
+        atom = (RandomVariableAtom)db.getAtomStore().getAtom(p1, args);
         assertEquals(1.0f, atom.getValue(), 0.0f);
         db.close();
     }
@@ -325,13 +331,19 @@ public abstract class DataStoreTest extends PSLBaseTest {
         UniqueIntID c = new UniqueIntID(2);
         UniqueIntID d = new UniqueIntID(3);
 
-        Database db = datastore.getDatabase(datastore.getPartition("0"));
-        RandomVariableAtom atom1 = (RandomVariableAtom) db.getAtom(p1, a, b);
-        RandomVariableAtom atom2 = (RandomVariableAtom) db.getAtom(p1, c, d);
+        Partition partition = datastore.getPartition("0");
+        Database db = datastore.getDatabase(partition);
+
+        RandomVariableAtom atom1 = new RandomVariableAtom(p1, new Constant[]{a, b}, 1.0f, partition.getID());
+        RandomVariableAtom atom2 = new RandomVariableAtom(p1, new Constant[]{c, d}, 1.0f, partition.getID());
+
+        db.getAtomStore().addAtom(atom1);
+        db.getAtomStore().addAtom(atom2);
+
         atom1.setValue(0.25f);
         atom2.setValue(0.75f);
-        db.commit(atom1);
-        db.commit(atom2);
+        db.getAtomStore().commit();
+
         DatabaseQuery query = new DatabaseQuery(new QueryAtom(p1,  new Variable("X"), new Variable("Y")));
         ResultList results = db.executeQuery(query);
         assertEquals(2, results.size());
@@ -372,8 +384,8 @@ public abstract class DataStoreTest extends PSLBaseTest {
 
         datastore.registerPredicate(p3);
         Inserter inserter = datastore.getInserter(p3, datastore.getPartition("0"));
-        inserter.insert(0.5, 1.0);
-        inserter.insert(0.0, 0.0);
+        inserter.insertRaw(0.5, 1.0);
+        inserter.insertRaw(0.0, 0.0);
 
         Database db = datastore.getDatabase(datastore.getPartition("0"));
 
@@ -383,10 +395,10 @@ public abstract class DataStoreTest extends PSLBaseTest {
         ResultList results = db.executeQuery(new DatabaseQuery(f));
         assertEquals(2, results.size());
 
-        GroundAtom atom = db.getAtom(functionalPredicate1, new DoubleAttribute(0.5), new DoubleAttribute(1.0));
+        GroundAtom atom = db.getAtomStore().getAtom(functionalPredicate1, new DoubleAttribute(0.5), new DoubleAttribute(1.0));
         assertEquals(0.75f, atom.getValue(), 0.0f);
 
-        atom = db.getAtom(functionalPredicate1, new DoubleAttribute(0.0), new DoubleAttribute(0.0));
+        atom = db.getAtomStore().getAtom(functionalPredicate1, new DoubleAttribute(0.0), new DoubleAttribute(0.0));
         assertEquals(0.0f, atom.getValue(), 0.0f);
     }
 
@@ -419,7 +431,7 @@ public abstract class DataStoreTest extends PSLBaseTest {
 
         // Tests a simple query
         inserter = datastore.getInserter(p1, datastore.getPartition("0"));
-        inserter.insert(a, b);
+        inserter.insertRaw(a, b);
 
         db = datastore.getDatabase(datastore.getPartition("0"));
 
@@ -436,9 +448,9 @@ public abstract class DataStoreTest extends PSLBaseTest {
         db.close();
 
         // Tests a simple query with mixed argument types
-        inserter.insert(b, a);
+        inserter.insertRaw(b, a);
         inserter = datastore.getInserter(p4, datastore.getPartition("0"));
-        inserter.insert(a, -0.1);
+        inserter.insertRaw(a, -0.1);
 
         db = datastore.getDatabase(datastore.getPartition("0"));
 
@@ -455,11 +467,11 @@ public abstract class DataStoreTest extends PSLBaseTest {
         db.close();
 
         // Tests a simple query with multiple results
-        inserter.insert(b, 4.0);
-        inserter.insert(c, 4.0);
-        inserter.insert(d, 4.0);
-        inserter.insert(e, 4.0);
-        inserter.insert(f, 4.0);
+        inserter.insertRaw(b, 4.0);
+        inserter.insertRaw(c, 4.0);
+        inserter.insertRaw(d, 4.0);
+        inserter.insertRaw(e, 4.0);
+        inserter.insertRaw(f, 4.0);
 
         db = datastore.getDatabase(datastore.getPartition("0"));
 
@@ -504,8 +516,8 @@ public abstract class DataStoreTest extends PSLBaseTest {
         UniqueIntID b = new UniqueIntID(1);
 
         Inserter inserter = datastore.getInserter(p1, datastore.getPartition("0"));
-        inserter.insert(a, a);
-        inserter.insert(a, b);
+        inserter.insertRaw(a, a);
+        inserter.insertRaw(a, b);
 
         Variable X = new Variable("X");
         Variable Y = new Variable("Y");
@@ -524,10 +536,10 @@ public abstract class DataStoreTest extends PSLBaseTest {
         assertEquals(a, results.get(0, X));
         assertEquals(a, results.get(0, Y));
 
-        atom = db.getAtom(GroundingOnlyPredicate.Equal, a, a);
+        atom = db.getAtomStore().getAtom(GroundingOnlyPredicate.Equal, a, a);
         assertEquals(1.0, atom.getValue(), 0.0);
 
-        atom = db.getAtom(GroundingOnlyPredicate.Equal, a, b);
+        atom = db.getAtomStore().getAtom(GroundingOnlyPredicate.Equal, a, b);
         assertEquals(0.0, atom.getValue(), 0.0);
 
         // Tests inequality
@@ -539,10 +551,10 @@ public abstract class DataStoreTest extends PSLBaseTest {
         assertEquals(a, results.get(0, X));
         assertEquals(b, results.get(0, Y));
 
-        atom = db.getAtom(GroundingOnlyPredicate.NotEqual, a, a);
+        atom = db.getAtomStore().getAtom(GroundingOnlyPredicate.NotEqual, a, a);
         assertEquals(0.0, atom.getValue(), 0.0);
 
-        atom = db.getAtom(GroundingOnlyPredicate.NotEqual, a, b);
+        atom = db.getAtomStore().getAtom(GroundingOnlyPredicate.NotEqual, a, b);
         assertEquals(1.0, atom.getValue(), 0.0);
 
         // Tests non-symmetry
@@ -554,10 +566,10 @@ public abstract class DataStoreTest extends PSLBaseTest {
         assertEquals(a, results.get(0, X));
         assertEquals(b, results.get(0, Y));
 
-        atom = db.getAtom(GroundingOnlyPredicate.NonSymmetric, b, a);
+        atom = db.getAtomStore().getAtom(GroundingOnlyPredicate.NonSymmetric, b, a);
         assertEquals(0.0, atom.getValue(), 0.0);
 
-        atom = db.getAtom(GroundingOnlyPredicate.NonSymmetric, a, b);
+        atom = db.getAtomStore().getAtom(GroundingOnlyPredicate.NonSymmetric, a, b);
         assertEquals(1.0, atom.getValue(), 0.0);
     }
 
@@ -567,29 +579,13 @@ public abstract class DataStoreTest extends PSLBaseTest {
             return;
         }
 
-        Database db = datastore.getDatabase(datastore.getPartition("0"));
+        Partition partition = datastore.getPartition("0");
+        Database db = datastore.getDatabase(partition);
         dbs.add(db);
+        db.getAtomStore().addAtom(new ObservedAtom(p2, new Constant[]{new StringAttribute("a"), new StringAttribute("b")}, 1.0f, partition.getID()));
 
         try {
-            db.getAtom(p2, new StringAttribute("a"), new StringAttribute("b"));
-            fail("IllegalArgumentException not thrown as expected.");
-        } catch (IllegalArgumentException ex) {
-            // Expected
-        }
-    }
-
-    @Test
-    public void testLateRegisteredPredicate() {
-        if (datastore == null) {
-            return;
-        }
-
-        Database db = datastore.getDatabase(datastore.getPartition("0"));
-        dbs.add(db);
-        datastore.registerPredicate(p1);
-
-        try {
-            db.getAtom(p2, new StringAttribute("a"), new StringAttribute("b"));
+            db.getAtomStore().commit(true);
             fail("IllegalArgumentException not thrown as expected.");
         } catch (IllegalArgumentException ex) {
             // Expected
@@ -608,16 +604,16 @@ public abstract class DataStoreTest extends PSLBaseTest {
         UniqueIntID b = new UniqueIntID(1);
 
         Inserter inserter = datastore.getInserter(p1, datastore.getPartition("0"));
-        inserter.insert(a, b);
+        inserter.insertRaw(a, b);
 
         inserter = datastore.getInserter(p1, datastore.getPartition("1"));
-        inserter.insert(a, b);
+        inserter.insertRaw(a, b);
 
         Database db = datastore.getDatabase(datastore.getPartition("0"), datastore.getPartition("1"));
         dbs.add(db);
 
         try {
-            db.getAtom(p1, a, b);
+            db.getAtomStore().getAtom(p1, a, b);
             fail("IllegalStateException not thrown as expected.");
         } catch (IllegalStateException ex) {
             // Expected
@@ -636,16 +632,16 @@ public abstract class DataStoreTest extends PSLBaseTest {
         UniqueIntID b = new UniqueIntID(1);
 
         Inserter inserter = datastore.getInserter(p1, datastore.getPartition("0"));
-        inserter.insert(a, b);
+        inserter.insertRaw(a, b);
 
         inserter = datastore.getInserter(p1, datastore.getPartition("1"));
-        inserter.insert(a, b);
+        inserter.insertRaw(a, b);
 
         Database db = datastore.getDatabase(datastore.getPartition("2"), datastore.getPartition("0"), datastore.getPartition("1"));
         dbs.add(db);
 
         try {
-            db.getAtom(p1, a, b);
+            db.getAtomStore().getAtom(p1, a, b);
             fail("IllegalStateException not thrown as expected.");
         } catch (IllegalStateException ex) {
             // Expected
@@ -667,20 +663,20 @@ public abstract class DataStoreTest extends PSLBaseTest {
         UniqueIntID c = new UniqueIntID(2);
         UniqueIntID d = new UniqueIntID(3);
 
-        inserter.insert(a, b);
-        inserter.insert(b, c);
-        inserter.insert(c, d);
-        inserter.insert(a, d);
+        inserter.insertRaw(a, b);
+        inserter.insertRaw(b, c);
+        inserter.insertRaw(c, d);
+        inserter.insertRaw(a, d);
 
         Database db1 = datastore.getDatabase(datastore.getPartition("1"), datastore.getPartition("0"));
         Database db2 = datastore.getDatabase(datastore.getPartition("2"), datastore.getPartition("0"));
         dbs.add(db1);
         dbs.add(db2);
 
-        GroundAtom atom = db1.getAtom(p1, b, c);
+        GroundAtom atom = db1.getAtomStore().getAtom(p1, b, c);
         assertTrue(atom instanceof ObservedAtom);
 
-        atom = db2.getAtom(p1, b, c);
+        atom = db2.getAtomStore().getAtom(p1, b, c);
         assertTrue(atom instanceof ObservedAtom);
     }
 
@@ -793,7 +789,7 @@ public abstract class DataStoreTest extends PSLBaseTest {
         db.close();
 
         try {
-            db.getAtom(p1, a, b);
+            db.getAtomStore().getAtom(p1, a, b);
             fail("IllegalStateException not thrown as expected.");
         } catch (IllegalStateException ex) {
             // Expected
@@ -812,11 +808,10 @@ public abstract class DataStoreTest extends PSLBaseTest {
         UniqueIntID b = new UniqueIntID(1);
 
         Database db = datastore.getDatabase(datastore.getPartition("0"));
-        RandomVariableAtom atom = (RandomVariableAtom) db.getAtom(p1, a, b);
         db.close();
 
         try {
-            db.commit(atom);
+            db.getAtomStore().commit();
             fail("IllegalStateException not thrown as expected.");
         } catch (IllegalStateException ex) {
             // Expected
@@ -862,10 +857,10 @@ public abstract class DataStoreTest extends PSLBaseTest {
         UniqueIntID c = new UniqueIntID(2);
         UniqueIntID d = new UniqueIntID(3);
 
-        inserter.insert(a, b);
-        inserter.insert(b, c);
-        inserter.insert(c, d);
-        inserter.insert(a, d);
+        inserter.insertRaw(a, b);
+        inserter.insertRaw(b, c);
+        inserter.insertRaw(c, d);
+        inserter.insertRaw(a, d);
 
         int numDeleted = datastore.deletePartition(datastore.getPartition("0"));
         assertEquals(4, numDeleted);
@@ -941,7 +936,7 @@ public abstract class DataStoreTest extends PSLBaseTest {
         ));
 
         for (Object value : values) {
-            inserter.insert(value, value);
+            inserter.insertRaw(value, value);
         }
 
         Database db = datastore.getDatabase(datastore.getPartition("0"));
@@ -1013,7 +1008,7 @@ public abstract class DataStoreTest extends PSLBaseTest {
 
         for (int i = 0; i < badValues.length; i++) {
             try {
-                inserter.insertValue(badValues[i], a, b);
+                inserter.insertValueRaw(badValues[i], a, b);
                 fail("IllegalArgumentException not thrown as expected on index " + i + ", value: " + badValues[i]);
             } catch (IllegalArgumentException ex) {
                 // Expected

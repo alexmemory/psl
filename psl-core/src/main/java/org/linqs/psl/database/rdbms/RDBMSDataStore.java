@@ -1,7 +1,7 @@
 /*
  * This file is part of the PSL software.
  * Copyright 2011-2015 University of Maryland
- * Copyright 2013-2022 The Regents of the University of California
+ * Copyright 2013-2023 The Regents of the University of California
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -26,6 +26,8 @@ import org.linqs.psl.model.predicate.Predicate;
 import org.linqs.psl.model.predicate.StandardPredicate;
 import org.linqs.psl.util.Logger;
 import org.linqs.psl.util.Parallel;
+
+import com.healthmarketscience.sqlbuilder.SelectQuery;
 
 import java.sql.Connection;
 import java.sql.SQLException;
@@ -194,23 +196,34 @@ public class RDBMSDataStore implements DataStore {
             return;
         }
 
-        // Index in parallel.
         log.debug("Indexing predicates.");
-        Parallel.foreach(toIndex, new Parallel.Worker<PredicateInfo>() {
-            @Override
-            public void work(long index, PredicateInfo predicateInfo) {
-                log.trace("Indexing " + predicateInfo.predicate());
+
+        if (dbDriver.canConcurrentWrite()) {
+            // Index in parallel.
+            Parallel.foreach(toIndex, new Parallel.Worker<PredicateInfo>() {
+                @Override
+                public void work(long index, PredicateInfo predicateInfo) {
+                    log.trace("Parallel Indexing " + predicateInfo.predicate());
+
+                    try (Connection connection = getConnection()) {
+                        predicateInfo.index(connection, dbDriver);
+                    } catch (SQLException ex) {
+                        throw new RuntimeException("Unable to index predicate: " + predicateInfo.predicate(), ex);
+                    }
+                }
+            });
+        } else {
+            // Index in serial.
+            for (PredicateInfo predicateInfo : toIndex) {
+                log.trace("Serial Indexing " + predicateInfo.predicate());
 
                 try (Connection connection = getConnection()) {
                     predicateInfo.index(connection, dbDriver);
                 } catch (SQLException ex) {
                     throw new RuntimeException("Unable to index predicate: " + predicateInfo.predicate(), ex);
                 }
-
-                // Ensure that table stats are up-to-date.
-                dbDriver.updateTableStats(predicateInfo);
             }
-        });
+        }
 
         // Ensure that DB stats are up-to-date.
         dbDriver.updateDBStats();
@@ -294,7 +307,8 @@ public class RDBMSDataStore implements DataStore {
         return metadata;
     }
 
-    public void releasePartitions(RDBMSDatabase db) {
+    @Override
+    public void releasePartitions(Database db) {
         if (!db.getDataStore().equals(this)) {
             throw new IllegalArgumentException("Database has not been opened with this data store.");
         }
@@ -326,6 +340,11 @@ public class RDBMSDataStore implements DataStore {
         return metadata.getAllPartitions();
     }
 
+    @Override
+    public String setLimit(SelectQuery query, int count) {
+        return dbDriver.setLimit(query, count);
+    }
+
     public int getPredicateRowCount(StandardPredicate predicate) {
         try (Connection connection = getConnection()) {
             return predicates.get(predicate).getCount(connection);
@@ -342,13 +361,21 @@ public class RDBMSDataStore implements DataStore {
         return dbDriver.getConnection();
     }
 
+    @Override
+    public boolean canExplain() {
+        return dbDriver.canExplain();
+    }
+
+    @Override
+    public DatabaseDriver.ExplainResult explain(String sql) {
+        return dbDriver.explain(sql);
+    }
+
     public static Set<RDBMSDataStore> getOpenDataStores() {
         return Collections.unmodifiableSet(openDataStores);
     }
 
-    /**
-     * Helper method for getting a predicate handle
-     */
+    @Override
     public synchronized PredicateInfo getPredicateInfo(Predicate predicate) {
         PredicateInfo info = predicates.get(predicate);
         if (info == null) {

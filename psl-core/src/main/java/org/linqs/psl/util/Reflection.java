@@ -1,7 +1,7 @@
 /*
  * This file is part of the PSL software.
  * Copyright 2011-2015 University of Maryland
- * Copyright 2013-2022 The Regents of the University of California
+ * Copyright 2013-2023 The Regents of the University of California
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -43,7 +43,7 @@ public final class Reflection {
         }
 
         String longName = null;
-        for (String knownClass : Config.getList(Config.CLASS_LIST_KEY, true)) {
+        for (String knownClass : Config.getStringList(Config.CLASS_LIST_KEY)) {
             // There are several ways we could do this match.
             // Instead of splitting the full path, we are just going to search for a dot and the short name
             // so that we can hack in disabbiguation matches.
@@ -61,7 +61,7 @@ public final class Reflection {
         return longName;
     }
 
-    public static Object newObject(String name) {
+    public static Class getClass(String name) {
         String className = resolveClassName(name);
         if (className == null) {
             throw new IllegalArgumentException("Could not find class: " + name);
@@ -74,7 +74,11 @@ public final class Reflection {
             throw new IllegalArgumentException("Could not find class: " + className, ex);
         }
 
-        return newObject(classObject);
+        return classObject;
+    }
+
+    public static Object newObject(String name) {
+        return newObject(getClass(name));
     }
 
     public static Object newObject(Class<?> classObject) {

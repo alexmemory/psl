@@ -1,7 +1,7 @@
 /*
  * This file is part of the PSL software.
  * Copyright 2011-2015 University of Maryland
- * Copyright 2013-2022 The Regents of the University of California
+ * Copyright 2013-2023 The Regents of the University of California
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -17,13 +17,14 @@
  */
 package org.linqs.psl.model.rule;
 
-import org.linqs.psl.database.atom.AtomManager;
-import org.linqs.psl.database.rdbms.RawQuery;
-import org.linqs.psl.grounding.GroundRuleStore;
+import org.linqs.psl.database.Database;
+import org.linqs.psl.database.RawQuery;
+import org.linqs.psl.grounding.Grounding;
 import org.linqs.psl.model.atom.Atom;
 import org.linqs.psl.model.formula.Formula;
 import org.linqs.psl.model.term.Constant;
 import org.linqs.psl.model.term.Variable;
+import org.linqs.psl.reasoner.term.TermStore;
 
 import java.util.List;
 import java.util.Map;
@@ -65,7 +66,7 @@ public class FakeRule extends AbstractRule implements WeightedRule {
     }
 
     @Override
-    public long groundAll(AtomManager atomManager, GroundRuleStore groundRuleStore) {
+    public long groundAll(TermStore termStore, Grounding.GroundRuleCallback groundRuleCallback) {
         return 0;
     }
 
@@ -94,12 +95,12 @@ public class FakeRule extends AbstractRule implements WeightedRule {
     }
 
     @Override
-    public RawQuery getGroundingQuery(AtomManager atomManager) {
+    public RawQuery getGroundingQuery(Database database) {
         return null;
     }
 
     @Override
-    public void ground(Constant[] constants, Map<Variable, Integer> variableMap, AtomManager atomManager, List<GroundRule> results) {
+    public void ground(Constant[] constants, Map<Variable, Integer> variableMap, Database database, List<GroundRule> results) {
         // Pass.
     }
 

@@ -1,7 +1,7 @@
 /*
  * This file is part of the PSL software.
  * Copyright 2011-2015 University of Maryland
- * Copyright 2013-2022 The Regents of the University of California
+ * Copyright 2013-2023 The Regents of the University of California
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -20,6 +20,8 @@ package org.linqs.psl.application.learning.weight.search.grid;
 import org.linqs.psl.application.learning.weight.WeightLearningApplication;
 import org.linqs.psl.application.learning.weight.WeightLearningTest;
 import org.linqs.psl.config.Options;
+import org.linqs.psl.evaluation.EvaluationInstance;
+import org.linqs.psl.evaluation.statistics.ContinuousEvaluator;
 import org.linqs.psl.evaluation.statistics.DiscreteEvaluator;
 
 public class GridSearchDiscreteLossTest extends WeightLearningTest {
@@ -30,13 +32,20 @@ public class GridSearchDiscreteLossTest extends WeightLearningTest {
     }
 
     @Override
-    protected WeightLearningApplication getWLA() {
+    protected WeightLearningApplication getBaseWLA() {
         // Narrow the search space for tests.
         Options.WLA_GS_POSSIBLE_WEIGHTS.set("0.01:1:10");
 
-        // Use MAE as an objective.
-        Options.WLA_EVAL.set(DiscreteEvaluator.class.getName());
+        return new GridSearch(info.model.getRules(), trainTargetDatabase, trainTruthDatabase,
+                validationTargetDatabase, validationTruthDatabase, false);
+    }
 
-        return new GridSearch(info.model.getRules(), weightLearningTrainDB, weightLearningTruthDB);
+    @Override
+    protected WeightLearningApplication getWLA() {
+
+        WeightLearningApplication wla = getBaseWLA();
+        wla.setEvaluation(new EvaluationInstance(info.predicates.get("Friends"), new DiscreteEvaluator(), true));
+
+        return wla;
     }
 }

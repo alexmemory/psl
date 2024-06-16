@@ -1,7 +1,7 @@
 /*
  * This file is part of the PSL software.
  * Copyright 2011-2015 University of Maryland
- * Copyright 2013-2022 The Regents of the University of California
+ * Copyright 2013-2023 The Regents of the University of California
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -17,17 +17,18 @@
  */
 package org.linqs.psl.model.rule.arithmetic;
 
+import org.linqs.psl.database.Database;
 import org.linqs.psl.database.DatabaseQuery;
+import org.linqs.psl.database.PersistedAtomManagementException;
 import org.linqs.psl.database.ResultList;
-import org.linqs.psl.database.atom.AtomManager;
+import org.linqs.psl.database.RawQuery;
 import org.linqs.psl.database.rdbms.Formula2SQL;
-import org.linqs.psl.database.rdbms.RDBMSDatabase;
-import org.linqs.psl.database.rdbms.RawQuery;
-import org.linqs.psl.grounding.GroundRuleStore;
+import org.linqs.psl.grounding.Grounding;
 import org.linqs.psl.model.atom.Atom;
 import org.linqs.psl.model.atom.GroundAtom;
 import org.linqs.psl.model.atom.QueryAtom;
 import org.linqs.psl.model.atom.RandomVariableAtom;
+import org.linqs.psl.model.atom.UnmanagedRandomVariableAtom;
 import org.linqs.psl.model.formula.Conjunction;
 import org.linqs.psl.model.formula.Disjunction;
 import org.linqs.psl.model.formula.Formula;
@@ -49,6 +50,7 @@ import org.linqs.psl.model.term.Term;
 import org.linqs.psl.model.term.Variable;
 import org.linqs.psl.model.term.VariableTypeMap;
 import org.linqs.psl.reasoner.function.FunctionComparator;
+import org.linqs.psl.reasoner.term.TermStore;
 import org.linqs.psl.util.Logger;
 import org.linqs.psl.util.MathUtils;
 import org.linqs.psl.util.Parallel;
@@ -79,7 +81,7 @@ public abstract class AbstractArithmeticRule extends AbstractRule {
      */
     private final String groundingResourcesKey;
 
-    private volatile boolean validatedByAtomManager;
+    private volatile boolean validatedByDatabase;
 
     public AbstractArithmeticRule(ArithmeticRuleExpression expression, Map<SummationVariable, Formula> filterClauses, String name) {
         super(name, expression.hashCode());
@@ -93,7 +95,7 @@ public abstract class AbstractArithmeticRule extends AbstractRule {
             entry.setValue(entry.getValue().getDNF());
         }
 
-        validatedByAtomManager = false;
+        validatedByDatabase = false;
         validateRule();
     }
 
@@ -245,12 +247,7 @@ public abstract class AbstractArithmeticRule extends AbstractRule {
     }
 
     @Override
-    public RawQuery getGroundingQuery(AtomManager atomManager) {
-        if (!(atomManager.getDatabase() instanceof RDBMSDatabase)) {
-            throw new IllegalArgumentException("Can only ground arithmetic rules with a relational database.");
-        }
-        RDBMSDatabase database = ((RDBMSDatabase)atomManager.getDatabase());
-
+    public RawQuery getGroundingQuery(Database database) {
         if (!hasSummation()) {
             return new RawQuery(database, expression.getQueryFormula());
         } else {
@@ -259,36 +256,31 @@ public abstract class AbstractArithmeticRule extends AbstractRule {
     }
 
     @Override
-    public void ground(Constant[] constants, Map<Variable, Integer> variableMap, AtomManager atomManager,
+    public void ground(Constant[] constants, Map<Variable, Integer> variableMap, Database database,
             List<GroundRule> results) {
-        if (!validatedByAtomManager) {
-            validateForGrounding(atomManager);
+        if (!validatedByDatabase) {
+            validateForGrounding(database);
         }
 
         if (!hasSummation()) {
-            groundForNonSummation(constants, variableMap, atomManager, results);
+            groundForNonSummation(constants, variableMap, database, results);
         } else {
-            groundForSummation(constants, variableMap, atomManager, results);
+            groundForSummation(constants, variableMap, database, results);
         }
     }
 
-    private void groundForNonSummation(Constant[] constants, Map<Variable, Integer> variableMap, AtomManager atomManager,
+    private void groundForNonSummation(Constant[] constants, Map<Variable, Integer> variableMap, Database database,
             List<GroundRule> results) {
         GroundingResources resources = getGroundingResources(expression);
-        groundSingleNonSummationRule(constants, variableMap, atomManager, resources);
+        groundSingleNonSummationRule(constants, variableMap, database, resources);
 
         results.addAll(resources.groundRules);
         resources.groundRules.clear();
         resources.accessExceptionAtoms.clear();
     }
 
-    private void groundForSummation(Constant[] constants, Map<Variable, Integer> variableMap, AtomManager atomManager,
+    private void groundForSummation(Constant[] constants, Map<Variable, Integer> variableMap, Database database,
             List<GroundRule> results) {
-        if (!(atomManager.getDatabase() instanceof RDBMSDatabase)) {
-            throw new IllegalArgumentException("Can only ground summation arithmetic rules with a relational database.");
-        }
-        RDBMSDatabase database = ((RDBMSDatabase)atomManager.getDatabase());
-
         GroundingResources resources = prepSummationGroundingResources(database);
 
         // Bail if there are no groundings.
@@ -296,7 +288,7 @@ public abstract class AbstractArithmeticRule extends AbstractRule {
             return;
         }
 
-        groundSingleSummationRule(constants, variableMap, atomManager, resources);
+        groundSingleSummationRule(constants, variableMap, database, resources);
 
         results.addAll(resources.groundRules);
         resources.groundRules.clear();
@@ -304,35 +296,40 @@ public abstract class AbstractArithmeticRule extends AbstractRule {
     }
 
     @Override
-    public long groundAll(AtomManager atomManager, GroundRuleStore groundRuleStore) {
-        if (!validatedByAtomManager) {
-            validateForGrounding(atomManager);
+    public long groundAll(TermStore termStore, Grounding.GroundRuleCallback groundRuleCallback) {
+        if (!validatedByDatabase) {
+            validateForGrounding(termStore.getDatabase());
         }
 
-        long groundCount = 0;
+        long termCount = 0;
         if (!hasSummation()) {
-            groundCount = groundAllNonSummationRule(atomManager, groundRuleStore);
+            termCount = groundAllNonSummationRule(termStore, groundRuleCallback);
         } else {
-            groundCount = groundAllSummationRule(atomManager, groundRuleStore);
+            termCount = groundAllSummationRule(termStore, groundRuleCallback);
         }
 
-        log.debug("Grounded {} instances of rule {}", groundCount, this);
-        return groundCount;
+        log.debug("Grounded {} terms from rule {}", termCount, this);
+        return termCount;
     }
 
-    private long groundAllNonSummationRule(AtomManager atomManager, GroundRuleStore groundRuleStore) {
+    private long groundAllNonSummationRule(TermStore termStore, Grounding.GroundRuleCallback groundRuleCallback) {
         GroundingResources resources = getGroundingResources(expression);
 
-        ResultList results = atomManager.executeQuery(new DatabaseQuery(expression.getQueryFormula(), false));
-        Map<Variable, Integer> variableMap = results.getVariableMap();
+        try (ResultList results = termStore.getDatabase().executeQuery(new DatabaseQuery(expression.getQueryFormula(), false))) {
+            Map<Variable, Integer> variableMap = results.getVariableMap();
 
-        for (int groundingIndex = 0; groundingIndex < results.size(); groundingIndex++) {
-            groundSingleNonSummationRule(results.get(groundingIndex), variableMap, atomManager, resources);
+            for (int groundingIndex = 0; groundingIndex < results.size(); groundingIndex++) {
+                groundSingleNonSummationRule(results.get(groundingIndex), variableMap, termStore.getDatabase(), resources);
+            }
         }
 
         long count = resources.groundRules.size();
         for (GroundRule groundRule : resources.groundRules) {
-            groundRuleStore.addGroundRule(groundRule);
+            termStore.add(groundRule);
+
+            if (groundRuleCallback != null) {
+                groundRuleCallback.call(groundRule);
+            }
         }
         resources.groundRules.clear();
         resources.accessExceptionAtoms.clear();
@@ -342,28 +339,28 @@ public abstract class AbstractArithmeticRule extends AbstractRule {
 
     private void groundSingleNonSummationRule(
             Constant[] queryRow, Map<Variable, Integer> variableMap,
-            AtomManager atomManager, GroundingResources resources) {
+            Database database, GroundingResources resources) {
         for (int atomIndex = 0; atomIndex < resources.groundAtoms.length; atomIndex++) {
             QueryAtom atom = resources.queryAtoms.get(atomIndex);
 
             // First, check if this atom is a grounding only atom (and it is valid).
             // The semantics are not well defined, but any false result will invalidate this grounding.
             if (atom.getPredicate() instanceof GroundingOnlyPredicate) {
-                double result = ((GroundingOnlyPredicate)atom.getPredicate()).computeValue(atom, variableMap, queryRow);
-                if (MathUtils.equals(result, 0.0)) {
+                float result = ((GroundingOnlyPredicate)atom.getPredicate()).computeValue(atom, variableMap, queryRow);
+                if (MathUtils.equals(result, 0.0f)) {
                     return;
                 }
             }
 
             GroundAtom groundAtom = resources.queryAtoms.get(atomIndex).ground(
-                    atomManager, queryRow, variableMap, resources.argumentBuffer[atomIndex], -1.0);
+                    database, queryRow, variableMap, resources.argumentBuffer[atomIndex], -1.0f);
             if (groundAtom == null) {
                 return;
             }
 
             resources.groundAtoms[atomIndex] = groundAtom;
 
-            if ((groundAtom instanceof RandomVariableAtom) && ((RandomVariableAtom)groundAtom).getAccessException()) {
+            if (groundAtom instanceof UnmanagedRandomVariableAtom) {
                 resources.accessExceptionAtoms.add(resources.groundAtoms[atomIndex]);
             }
         }
@@ -374,19 +371,19 @@ public abstract class AbstractArithmeticRule extends AbstractRule {
         if (isWeighted() && FunctionComparator.EQ.equals(expression.getComparator())) {
             groundRule = makeGroundRule(resources.coefficients, resources.groundAtoms,
                     FunctionComparator.GTE, resources.finalCoefficient);
-            if (verifyGroundRule(groundRule, atomManager, resources)) {
+            if (verifyGroundRule(groundRule, database, resources)) {
                 resources.groundRules.add(groundRule);
             }
 
             groundRule = makeGroundRule(resources.coefficients, resources.groundAtoms,
                     FunctionComparator.LTE, resources.finalCoefficient);
-            if (verifyGroundRule(groundRule, atomManager, resources)) {
+            if (verifyGroundRule(groundRule, database, resources)) {
                 resources.groundRules.add(groundRule);
             }
         } else {
             groundRule = makeGroundRule(resources.coefficients, resources.groundAtoms,
                     expression.getComparator(), resources.finalCoefficient);
-            if (verifyGroundRule(groundRule, atomManager, resources)) {
+            if (verifyGroundRule(groundRule, database, resources)) {
                 resources.groundRules.add(groundRule);
             }
         }
@@ -395,31 +392,31 @@ public abstract class AbstractArithmeticRule extends AbstractRule {
     /**
      * Ground by first expanding summation atoms into normal ones and then calling the non-summation grounding.
      */
-    private long groundAllSummationRule(AtomManager atomManager, GroundRuleStore groundRuleStore) {
-        if (!(atomManager.getDatabase() instanceof RDBMSDatabase)) {
-            throw new IllegalArgumentException("Can only ground summation arithmetic rules with a relational database.");
-        }
-        RDBMSDatabase database = ((RDBMSDatabase)atomManager.getDatabase());
-
-        GroundingResources resources = prepSummationGroundingResources(database);
+    private long groundAllSummationRule(TermStore termStore, Grounding.GroundRuleCallback groundRuleCallback) {
+        GroundingResources resources = prepSummationGroundingResources(termStore.getDatabase());
 
         // Bail if there are no groundings.
         if (resources.flatExpression == null) {
             return 0;
         }
 
-        RawQuery rawQuery = getSummationRawQuery(database);
+        RawQuery rawQuery = getSummationRawQuery(termStore.getDatabase());
 
-        ResultList results = database.executeQuery(rawQuery);
-        Map<Variable, Integer> variableMap = results.getVariableMap();
+        try (ResultList results = termStore.getDatabase().executeSQL(rawQuery)) {
+            Map<Variable, Integer> variableMap = results.getVariableMap();
 
-        for (int groundingIndex = 0; groundingIndex < results.size(); groundingIndex++) {
-            groundSingleSummationRule(results.get(groundingIndex), variableMap, atomManager, resources);
+            for (int groundingIndex = 0; groundingIndex < results.size(); groundingIndex++) {
+                groundSingleSummationRule(results.get(groundingIndex), variableMap, termStore.getDatabase(), resources);
+            }
         }
 
         long count = resources.groundRules.size();
         for (GroundRule groundRule : resources.groundRules) {
-            groundRuleStore.addGroundRule(groundRule);
+            termStore.add(groundRule);
+
+            if (groundRuleCallback != null) {
+                groundRuleCallback.call(groundRule);
+            }
         }
         resources.groundRules.clear();
         resources.accessExceptionAtoms.clear();
@@ -429,7 +426,7 @@ public abstract class AbstractArithmeticRule extends AbstractRule {
 
     private void groundSingleSummationRule(
             Constant[] queryRow, Map<Variable, Integer> variableMap,
-            AtomManager atomManager, GroundingResources resources) {
+            Database database, GroundingResources resources) {
         // First reset the summation counts.
         for (Map.Entry<SummationVariable, Integer> entry : resources.totalSummationCounts.entrySet()) {
             resources.summationCounts.put(entry.getKey(), entry.getValue());
@@ -442,14 +439,14 @@ public abstract class AbstractArithmeticRule extends AbstractRule {
             // We will need to check the database for existance if we have an open summation atom.
             boolean checkDatabase =
                     resources.flatSummationAtoms[atomIndex] &&
-                    !atomManager.isClosed((StandardPredicate)resources.queryAtoms.get(atomIndex).getPredicate());
+                    !database.isClosed(resources.queryAtoms.get(atomIndex).getPredicate());
 
             boolean skip = false;
             SummationVariable[] variables = resources.flatSummationVariables.get(atomIndex);
 
             // Check the DB cache for summation atoms.
             GroundAtom groundAtom = resources.queryAtoms.get(atomIndex).ground(
-                    atomManager, queryRow, variableMap, resources.argumentBuffer[atomIndex], -1.0, checkDatabase);
+                    database, queryRow, variableMap, resources.argumentBuffer[atomIndex], -1.0f, checkDatabase);
 
             // This atom does not exist in the DB cache, skip it.
             // Non-summation atoms will throw an access exception in this case.
@@ -469,7 +466,7 @@ public abstract class AbstractArithmeticRule extends AbstractRule {
                     if (!evalFilter(
                             filters.get(variable), variable,
                             groundAtom.getArguments()[variableIndex],
-                            atomManager, queryRow, variableMap)) {
+                            database, queryRow, variableMap)) {
                         skip = true;
                         break;
                     }
@@ -511,17 +508,17 @@ public abstract class AbstractArithmeticRule extends AbstractRule {
         GroundRule groundRule = null;
         if (isWeighted() && FunctionComparator.EQ.equals(resources.flatExpression.getComparator())) {
             groundRule = makeGroundRule(resources.coefficients, resources.groundAtoms, FunctionComparator.GTE, resources.finalCoefficient);
-            if (verifyGroundRule(groundRule, atomManager, resources)) {
+            if (verifyGroundRule(groundRule, database, resources)) {
                 resources.groundRules.add(groundRule);
             }
 
             groundRule = makeGroundRule(resources.coefficients, resources.groundAtoms, FunctionComparator.LTE, resources.finalCoefficient);
-            if (verifyGroundRule(groundRule, atomManager, resources)) {
+            if (verifyGroundRule(groundRule, database, resources)) {
                 resources.groundRules.add(groundRule);
             }
         } else {
             groundRule = makeGroundRule(resources.coefficients, resources.groundAtoms, resources.flatExpression.getComparator(), resources.finalCoefficient);
-            if (verifyGroundRule(groundRule, atomManager, resources)) {
+            if (verifyGroundRule(groundRule, database, resources)) {
                 resources.groundRules.add(groundRule);
             }
         }
@@ -537,7 +534,7 @@ public abstract class AbstractArithmeticRule extends AbstractRule {
     private boolean evalFilter(
             Formula filter,
             SummationVariable summationVariable, Constant variableValue,
-            AtomManager atomManager, Constant[] queryRow, Map<Variable, Integer> variableMap) {
+            Database database, Constant[] queryRow, Map<Variable, Integer> variableMap) {
         if (filter instanceof Atom) {
             // If the summation variable is in this atom, then replace its value and then ground.
             QueryAtom atom = (QueryAtom)filter;
@@ -558,7 +555,13 @@ public abstract class AbstractArithmeticRule extends AbstractRule {
                 atom = new QueryAtom(atom.getPredicate(), newArguments);
             }
 
-            GroundAtom groundAtom = atom.ground(atomManager, queryRow, variableMap);
+            // Check if the atom is GroundingOnly.
+            if (atom.getPredicate() instanceof GroundingOnlyPredicate) {
+                float result = ((GroundingOnlyPredicate)atom.getPredicate()).computeValue(atom, variableMap, queryRow);
+                return !MathUtils.equals(result, 0.0f);
+            }
+
+            GroundAtom groundAtom = atom.ground(database, queryRow, variableMap);
             if (groundAtom == null) {
                 return false;
             }
@@ -568,14 +571,14 @@ public abstract class AbstractArithmeticRule extends AbstractRule {
             return !evalFilter(
                 ((Negation)filter).getFormula(),
                 summationVariable, variableValue,
-                atomManager, queryRow, variableMap);
+                database, queryRow, variableMap);
         } else if (filter instanceof Conjunction) {
             Conjunction conjunction = (Conjunction)filter;
             for (int i = 0; i < conjunction.length(); i++) {
                 boolean value = evalFilter(
                     conjunction.get(i),
                     summationVariable, variableValue,
-                    atomManager, queryRow, variableMap);
+                    database, queryRow, variableMap);
 
                 if (!value) {
                     return false;
@@ -591,7 +594,7 @@ public abstract class AbstractArithmeticRule extends AbstractRule {
     /**
      * Check a rule for triviality and access exceptions.
      */
-    private boolean verifyGroundRule(GroundRule baseRule, AtomManager atomManager, GroundingResources resources) {
+    private boolean verifyGroundRule(GroundRule baseRule, Database database, GroundingResources resources) {
         AbstractGroundArithmeticRule rule = (AbstractGroundArithmeticRule)baseRule;
 
         // Start simple and just look for rules with a single atom.
@@ -637,14 +640,8 @@ public abstract class AbstractArithmeticRule extends AbstractRule {
 
         // This rule is not trivial, so also ensure that it does not have any PAM exceptions.
         if (resources.accessExceptionAtoms.size() != 0) {
-            RuntimeException ex = new RuntimeException(String.format(
-                    "Found one or more RandomVariableAtoms (target ground atom)" +
-                    " that were not explicitly specified in the targets." +
-                    " Offending atom(s): %s." +
-                    " This typically means that your specified target set is insufficient." +
-                    " This was encountered during the grounding of the rule: [%s].",
-                    resources.accessExceptionAtoms, this));
-            atomManager.reportAccessException(ex, resources.accessExceptionAtoms.iterator().next());
+            PersistedAtomManagementException.report(resources.accessExceptionAtoms, this);
+            return false;
         }
 
         return true;
@@ -694,8 +691,8 @@ public abstract class AbstractArithmeticRule extends AbstractRule {
      * Ensure that no open predicates are being used in a filter.
      * This is syncronized because we set a variable that multiple threads will look at.
      */
-    private synchronized void validateForGrounding(AtomManager atomManager) {
-        if (validatedByAtomManager) {
+    private synchronized void validateForGrounding(Database database) {
+        if (validatedByDatabase) {
             return;
         }
 
@@ -710,7 +707,7 @@ public abstract class AbstractArithmeticRule extends AbstractRule {
 
         for (Atom filterAtom : filterAtoms) {
             if (filterAtom.getPredicate() instanceof StandardPredicate
-                    && !atomManager.isClosed(((StandardPredicate)filterAtom.getPredicate()))) {
+                    && !database.isClosed(filterAtom.getPredicate())) {
                 throw new IllegalArgumentException(String.format(
                         "Open predicate (%s) not allowed in filter. " +
                         "Only closed predicates may appear in filters.",
@@ -718,13 +715,13 @@ public abstract class AbstractArithmeticRule extends AbstractRule {
             }
         }
 
-        validatedByAtomManager = true;
+        validatedByDatabase = true;
     }
 
     /**
      * Get a raw query that represents the grounding query for a rule with summations.
      */
-    private RawQuery getSummationRawQuery(RDBMSDatabase database) {
+    private RawQuery getSummationRawQuery(Database database) {
         // For the actual query, just use the normal expression.
         // We can't use the flat expression, since the flat summation will guarentee no results in most cases.
         // But, we can just ground normally and ignore the summation variables to get the variable replacments.
@@ -741,16 +738,19 @@ public abstract class AbstractArithmeticRule extends AbstractRule {
 
         Map<Variable, Integer> projectionMap = sqler.getProjectionMap();
 
+        String queryString = null;
+
         // If there are only summation atoms in this rule, then only get one result from the database.
         // The rule will be fully grounded, so we won't use any variable replacements.
         if (projectionMap.size() == 0) {
-            query.setFetchNext(1);
-        }
+            queryString = database.getDataStore().setLimit(query, 1);
+        } else
+            queryString = query.validate().toString();
 
-        return new RawQuery(query.validate().toString(),  projectionMap, variableTypes);
+        return new RawQuery(queryString,  projectionMap, variableTypes);
     }
 
-    private GroundingResources prepSummationGroundingResources(RDBMSDatabase database) {
+    private GroundingResources prepSummationGroundingResources(Database database) {
         GroundingResources resources = getGroundingResources(null);
         if (resources.summationDataLoaded) {
             return resources;
@@ -814,7 +814,7 @@ public abstract class AbstractArithmeticRule extends AbstractRule {
      * Query the database for the possible replacements for summation variables.
      */
     private Map<SummationVariable, ResultList> fetchSummationConstants(
-            Map<SummationVariable, SummationAtom> summationMapping, RDBMSDatabase database) {
+            Map<SummationVariable, SummationAtom> summationMapping, Database database) {
         Map<SummationVariable, ResultList> summationConstants = new HashMap<SummationVariable, ResultList>();
 
         for (Map.Entry<SummationVariable, SummationAtom> entry : summationMapping.entrySet()) {
@@ -829,7 +829,7 @@ public abstract class AbstractArithmeticRule extends AbstractRule {
      * Take the context expression and flatten out any summation atoms into non-summation atoms by expanding the summation variables.
      * The three output lists will all be the same size and indexes will match up.
      */
-    private void flattenAtoms(RDBMSDatabase database,
+    private void flattenAtoms(Database database,
             List<SummationAtomOrAtom> flatAtoms,
             List<Coefficient> flatCoefficients,
             List<SummationVariable[]> flatSummationVariables) {
@@ -916,9 +916,13 @@ public abstract class AbstractArithmeticRule extends AbstractRule {
                 }
             }
         }
+
+        for (ResultList results : summationConstants.values()) {
+            results.close();
+        }
     }
 
-    private ResultList fetchSummationValues(RDBMSDatabase database, SummationVariable variable, SummationAtom atom) {
+    private ResultList fetchSummationValues(Database database, SummationVariable variable, SummationAtom atom) {
         QueryAtom queryAtom = atom.getQueryAtom();
 
         VariableTypeMap variableTypes = new VariableTypeMap();
@@ -932,7 +936,7 @@ public abstract class AbstractArithmeticRule extends AbstractRule {
         SelectQuery query = sqler.getQuery(queryAtom);
         Map<Variable, Integer> projectionMap = sqler.getProjectionMap();
 
-        return database.executeQuery(projectionMap, variableTypes, query.validate().toString());
+        return database.executeSQL(new RawQuery(query.validate().toString(), projectionMap, variableTypes));
     }
 
     private GroundingResources getGroundingResources(ArithmeticRuleExpression expression) {

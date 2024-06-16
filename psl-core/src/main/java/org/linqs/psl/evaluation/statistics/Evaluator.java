@@ -1,7 +1,7 @@
 /*
  * This file is part of the PSL software.
  * Copyright 2011-2015 University of Maryland
- * Copyright 2013-2022 The Regents of the University of California
+ * Copyright 2013-2023 The Regents of the University of California
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -20,9 +20,8 @@ package org.linqs.psl.evaluation.statistics;
 import org.linqs.psl.application.learning.weight.TrainingMap;
 import org.linqs.psl.config.Options;
 import org.linqs.psl.database.Database;
-import org.linqs.psl.database.atom.PersistedAtomManager;
 import org.linqs.psl.model.atom.GroundAtom;
-import org.linqs.psl.model.atom.UnmanagedAtom;
+import org.linqs.psl.model.atom.UnmanagedObservedAtom;
 import org.linqs.psl.model.predicate.StandardPredicate;
 import org.linqs.psl.util.IteratorUtils;
 
@@ -130,25 +129,17 @@ public abstract class Evaluator {
 
     /**
      * A convenience call for those who don't want to create a training map directly.
-     * If the random variable database is already fully cached
-     * (ie a PAM has already been used on it (like if it has been used in inference))
-     * then don't rebuild the cache.
      */
-    public void compute(Database rvDB, Database truthDB, StandardPredicate predicate, boolean rvDBCached) {
-        PersistedAtomManager atomManager = new PersistedAtomManager(rvDB, rvDBCached);
-        TrainingMap map = new TrainingMap(atomManager, truthDB);
-        compute(map, predicate);
-    }
-
     public void compute(Database rvDB, Database truthDB, StandardPredicate predicate) {
-        compute(rvDB, truthDB, predicate, false);
+        TrainingMap map = new TrainingMap(rvDB, truthDB);
+        compute(map, predicate);
     }
 
     /**
      * Get the full mapping of target atoms to truth atoms.
      * What constitutes a full mapping depends on includeObserved and closeTruth.
      *
-     * Note that certain configurations may result in truth results being returned that include an UnmanagedAtom
+     * Note that certain configurations may result in truth results being returned that include an UnmanagedObservedAtom
      * (atoms that are not managed by an atom manager).
      * This is not an inherently bad or erroneous situation, the caller should just be concious of this.
      */
@@ -169,7 +160,7 @@ public abstract class Evaluator {
             Iterable<Map.Entry<GroundAtom, GroundAtom>> latentMap =
                 IteratorUtils.map(latentAtoms, new IteratorUtils.MapFunction<GroundAtom, Map.Entry<GroundAtom, GroundAtom>>() {
                     @Override public Map.Entry<GroundAtom, GroundAtom> map(GroundAtom atom) {
-                        GroundAtom truthAtom = new UnmanagedAtom(atom.getPredicate(), atom.getArguments(), 0.0f);
+                        GroundAtom truthAtom = new UnmanagedObservedAtom(atom.getPredicate(), atom.getArguments(), 0.0f);
                         return new AbstractMap.SimpleEntry<GroundAtom, GroundAtom>(atom, truthAtom);
                     }
                 });

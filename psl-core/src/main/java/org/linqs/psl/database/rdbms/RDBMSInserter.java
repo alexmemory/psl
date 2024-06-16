@@ -1,7 +1,7 @@
 /*
  * This file is part of the PSL software.
  * Copyright 2011-2015 University of Maryland
- * Copyright 2013-2022 The Regents of the University of California
+ * Copyright 2013-2023 The Regents of the University of California
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -148,8 +148,8 @@ public class RDBMSInserter extends Inserter {
 
             if (row.size() != predicateInfo.argumentColumns().size()) {
                 throw new IllegalArgumentException(
-                    String.format("Data on row %d length does not match for partition %s: Expecting: %d, Got: %d",
-                    rowIndex, partition.getName(), predicateInfo.argumentColumns().size(), row.size()));
+                    String.format("Data on row %d length does not match for predicate %s: Expecting: %d, Got: %d",
+                    rowIndex, predicateInfo.predicate().getName(), predicateInfo.argumentColumns().size(), row.size()));
             }
         }
 

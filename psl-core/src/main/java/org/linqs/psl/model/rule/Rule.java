@@ -1,7 +1,7 @@
 /*
  * This file is part of the PSL software.
  * Copyright 2011-2015 University of Maryland
- * Copyright 2013-2022 The Regents of the University of California
+ * Copyright 2013-2023 The Regents of the University of California
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -17,13 +17,14 @@
  */
 package org.linqs.psl.model.rule;
 
-import org.linqs.psl.database.atom.AtomManager;
-import org.linqs.psl.database.rdbms.RawQuery;
-import org.linqs.psl.grounding.GroundRuleStore;
+import org.linqs.psl.database.Database;
+import org.linqs.psl.database.RawQuery;
+import org.linqs.psl.grounding.Grounding;
 import org.linqs.psl.model.atom.Atom;
 import org.linqs.psl.model.formula.Formula;
 import org.linqs.psl.model.term.Constant;
 import org.linqs.psl.model.term.Variable;
+import org.linqs.psl.reasoner.term.TermStore;
 
 import java.io.Serializable;
 import java.util.List;
@@ -37,15 +38,17 @@ import java.util.Set;
  * A Rule must instantiate only WeightedGroundRules or only UnweightedGroundRules.
  */
 public interface Rule extends Serializable {
+    public long groundAll(TermStore termStore, Grounding.GroundRuleCallback groundRuleCallback);
+
     /**
-     * Adds all GroundRules to a GroundRuleStore using the AtomManager
-     * to instantiate ground atoms.
-     *
-     * @param atomManager AtomManager on which to base the grounding
-     * @param groundRuleStore store for new GroundRules
-     * @return the number of ground rules generated.
+     * A boolean indicating whether this rule is active during inference.
      */
-    public long groundAll(AtomManager atomManager, GroundRuleStore groundRuleStore);
+    public boolean isActive();
+
+    /**
+     * Set the active state of the rule.
+     */
+    public void setActive(boolean active);
 
     public boolean isWeighted();
 
@@ -83,13 +86,13 @@ public interface Rule extends Serializable {
      * Get the formula that we can use for grounding.
      * Should throw if supportsIndividualGrounding() == false.
      */
-    public RawQuery getGroundingQuery(AtomManager atomManager);
+    public RawQuery getGroundingQuery(Database database);
 
     /**
      * Get the formula that we can use for grounding.
      * Should throw if supportsIndividualGrounding() == false.
      */
-    public void ground(Constant[] constants, Map<Variable, Integer> variableMap, AtomManager atomManager, List<GroundRule> results);
+    public void ground(Constant[] constants, Map<Variable, Integer> variableMap, Database database, List<GroundRule> results);
 
     /**
      * Check if this rule needs to be broken up into multiple rules.

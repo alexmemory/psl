@@ -1,7 +1,7 @@
 /*
  * This file is part of the PSL software.
  * Copyright 2011-2015 University of Maryland
- * Copyright 2013-2022 The Regents of the University of California
+ * Copyright 2013-2023 The Regents of the University of California
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -21,18 +21,18 @@ import org.linqs.psl.application.ModelApplication;
 import org.linqs.psl.application.learning.weight.TrainingMap;
 import org.linqs.psl.config.Options;
 import org.linqs.psl.database.Database;
-import org.linqs.psl.database.atom.PersistedAtomManager;
-import org.linqs.psl.evaluation.statistics.Evaluator;
-import org.linqs.psl.model.atom.RandomVariableAtom;
-import org.linqs.psl.model.predicate.StandardPredicate;
-import org.linqs.psl.model.rule.Rule;
-import org.linqs.psl.model.rule.WeightedRule;
-import org.linqs.psl.model.rule.UnweightedRule;
-import org.linqs.psl.grounding.GroundRuleStore;
+import org.linqs.psl.evaluation.EvaluationInstance;
 import org.linqs.psl.grounding.Grounding;
+import org.linqs.psl.model.atom.RandomVariableAtom;
+import org.linqs.psl.model.predicate.DeepPredicate;
+import org.linqs.psl.model.predicate.Predicate;
+import org.linqs.psl.model.rule.Rule;
+import org.linqs.psl.model.rule.UnweightedRule;
+import org.linqs.psl.model.rule.WeightedRule;
 import org.linqs.psl.reasoner.InitialValue;
 import org.linqs.psl.reasoner.Reasoner;
-import org.linqs.psl.reasoner.term.TermGenerator;
+import org.linqs.psl.reasoner.admm.ADMMReasoner;
+import org.linqs.psl.reasoner.admm.term.ADMMTermStore;
 import org.linqs.psl.reasoner.term.TermStore;
 import org.linqs.psl.util.IteratorUtils;
 import org.linqs.psl.util.Logger;
@@ -42,14 +42,12 @@ import org.linqs.psl.util.Reflection;
 import java.lang.reflect.Constructor;
 import java.lang.reflect.InvocationTargetException;
 import java.util.ArrayList;
-import java.util.HashSet;
 import java.util.List;
-import java.util.Set;
 
 /**
  * All the tools necessary to perform inference.
- * An inference application owns the ground atoms (Database/AtomManager), ground rules (GroundRuleStore), the terms (TermStore),
- * how terms are generated (TermGenerator), and how inference is actually performed (Reasoner).
+ * An inference application owns the ground atoms (Database/AtomStore), the terms (TermStore),
+ * and how inference is actually performed (Reasoner).
  * As such, the inference application is the top level authority for these items and methods.
  * For example, inference may set the value of the random variables on construction.
  */
@@ -67,10 +65,7 @@ public abstract class InferenceApplication implements ModelApplication {
     protected float relaxationMultiplier;
     protected boolean relaxationSquared;
 
-    protected GroundRuleStore groundRuleStore;
     protected TermStore termStore;
-    protected TermGenerator termGenerator;
-    protected PersistedAtomManager atomManager;
 
     private boolean atomsCommitted;
 
@@ -98,10 +93,6 @@ public abstract class InferenceApplication implements ModelApplication {
      * This will call into the abstract method completeInitialize().
      */
     protected void initialize() {
-        log.debug("Creating persisted atom manager.");
-        atomManager = createAtomManager(database);
-        log.debug("Atom manager initialization complete.");
-
         initializeAtoms();
 
         if (normalizeWeights) {
@@ -113,56 +104,39 @@ public abstract class InferenceApplication implements ModelApplication {
         }
 
         reasoner = createReasoner();
-        termGenerator = createTermGenerator();
         termStore = createTermStore();
-        groundRuleStore = createGroundRuleStore();
-
-        termStore.ensureVariableCapacity(atomManager.getCachedRVACount());
 
         completeInitialize();
     }
 
-    protected PersistedAtomManager createAtomManager(Database database) {
-        return new PersistedAtomManager(database, false, initialValue);
-    }
-
-    protected GroundRuleStore createGroundRuleStore() {
-        return (GroundRuleStore)Options.INFERENCE_GRS.getNewObject();
-    }
-
     protected Reasoner createReasoner() {
-        return (Reasoner)Options.INFERENCE_REASONER.getNewObject();
-    }
-
-    protected TermGenerator createTermGenerator() {
-        return (TermGenerator)Options.INFERENCE_TG.getNewObject();
+        return new ADMMReasoner();
     }
 
     protected TermStore createTermStore() {
-        return (TermStore)Options.INFERENCE_TS.getNewObject();
+        return new ADMMTermStore(database);
     }
 
     /**
      * Complete the initialization process.
      * Most of the infrastructure will have been constructed.
-     * The child is responsible for constructing the AtomManager
-     * and populating the ground rule store.
+     * The child is responsible for populating the ground rule store.
      */
     protected void completeInitialize() {
         log.info("Grounding out model.");
-
-        // In this configuration, we know that the PAM pre-caches all the atoms (even ones from closed predicates).
-        // So, we can avoid hitting the database when we do not see them in the cache.
-        boolean oldValue = atomManager.queryDBForClosedAtoms(false);
-        long groundCount = Grounding.groundAll(rules, atomManager, groundRuleStore);
-        atomManager.queryDBForClosedAtoms(oldValue);
-
+        long termCount = Grounding.groundAll(rules, termStore);
         log.info("Grounding complete.");
+        log.debug("Generated {} terms.", termCount);
+    }
 
-        log.debug("Initializing objective terms for {} ground rules.", groundCount);
-        @SuppressWarnings("unchecked")
-        long termCount = termGenerator.generateTerms(groundRuleStore, termStore);
-        log.debug("Generated {} objective terms from {} ground rules.", termCount, groundCount);
+    public void loadDeepPredicates(String application) {
+        log.info("Loading deep predicates.");
+        for (Predicate predicate : Predicate.getAll()) {
+            if (predicate instanceof DeepPredicate) {
+                ((DeepPredicate)predicate).initDeepPredicate(database.getAtomStore(), application);
+                ((DeepPredicate)predicate).predictDeepModel(application.equals("learning"));
+            }
+        }
     }
 
     /**
@@ -185,12 +159,12 @@ public abstract class InferenceApplication implements ModelApplication {
      *
      * All RandomVariableAtoms which the model might access must be persisted in the Database.
      *
-     * If available, the evaluators and database (converted into a TrainingMap)
+     * If available, the evaluations and database (converted into a TrainingMap)
      * will be presented to reasoners to use during optimization.
      *
      * @return the final objective of the reasoner.
      */
-    public double inference(boolean commitAtoms, boolean reset, List<Evaluator> evaluators, Database truthDatabase) {
+    public double inference(boolean commitAtoms, boolean reset, List<EvaluationInstance> evaluations, Database truthDatabase) {
         if (reset) {
             initializeAtoms();
 
@@ -205,20 +179,12 @@ public abstract class InferenceApplication implements ModelApplication {
         }
 
         TrainingMap trainingMap = null;
-        Set<StandardPredicate> evaluationPredicates = null;
-        if (truthDatabase != null && evaluators.size() > 0) {
-            trainingMap = new TrainingMap(atomManager, truthDatabase);
-            evaluationPredicates = new HashSet<StandardPredicate>();
-
-            for (StandardPredicate predicate : database.getDataStore().getRegisteredPredicates()) {
-                if (truthDatabase.countAllGroundAtoms(predicate) > 0) {
-                    evaluationPredicates.add(predicate);
-                }
-            }
+        if (truthDatabase != null && evaluations != null && evaluations.size() > 0) {
+            trainingMap = new TrainingMap(database, truthDatabase);
         }
 
         log.info("Beginning inference.");
-        double objective = internalInference(evaluators, trainingMap, evaluationPredicates);
+        double objective = internalInference(evaluations, trainingMap);
         log.info("Inference complete.");
         atomsCommitted = false;
 
@@ -235,24 +201,21 @@ public abstract class InferenceApplication implements ModelApplication {
      *
      * @return the final objective of the reasoner.
      */
-    protected double internalInference(List<Evaluator> evaluators, TrainingMap trainingMap, Set<StandardPredicate> evaluationPredicates) {
-        return reasoner.optimize(termStore, evaluators, trainingMap, evaluationPredicates);
+    @SuppressWarnings("unchecked")
+    protected double internalInference(List<EvaluationInstance> evaluations, TrainingMap trainingMap) {
+        return reasoner.optimize(termStore, evaluations, trainingMap);
     }
 
     public Reasoner getReasoner() {
         return reasoner;
     }
 
-    public GroundRuleStore getGroundRuleStore() {
-        return groundRuleStore;
-    }
-
     public TermStore getTermStore() {
         return termStore;
     }
 
-    public PersistedAtomManager getAtomManager() {
-        return atomManager;
+    public Database getDatabase() {
+        return database;
     }
 
     /**
@@ -266,9 +229,13 @@ public abstract class InferenceApplication implements ModelApplication {
      * Set all the random variable atoms to the initial value for this inference application.
      */
     public void initializeAtoms() {
-        for (RandomVariableAtom atom : atomManager.getDatabase().getAllCachedRandomVariableAtoms()) {
+        for (RandomVariableAtom atom : database.getAtomStore().getRandomVariableAtoms()) {
             atom.setValue(initialValue.getVariableValue(atom));
         }
+    }
+
+    public void setInitialValue(InitialValue initialValue) {
+        this.initialValue = initialValue;
     }
 
     /**
@@ -280,7 +247,7 @@ public abstract class InferenceApplication implements ModelApplication {
         }
 
         log.info("Writing results to Database.");
-        atomManager.commitPersistedAtoms();
+        database.getAtomStore().commit();
         log.info("Results committed to database.");
 
         atomsCommitted = true;
@@ -291,11 +258,6 @@ public abstract class InferenceApplication implements ModelApplication {
         if (termStore != null) {
             termStore.close();
             termStore = null;
-        }
-
-        if (groundRuleStore != null) {
-            groundRuleStore.close();
-            groundRuleStore = null;
         }
 
         if (reasoner != null) {

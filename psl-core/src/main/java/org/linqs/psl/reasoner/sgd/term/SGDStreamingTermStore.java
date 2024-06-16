@@ -1,7 +1,7 @@
 /*
  * This file is part of the PSL software.
  * Copyright 2011-2015 University of Maryland
- * Copyright 2013-2022 The Regents of the University of California
+ * Copyright 2013-2023 The Regents of the University of California
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -17,42 +17,28 @@
  */
 package org.linqs.psl.reasoner.sgd.term;
 
-import org.linqs.psl.database.atom.AtomManager;
+import org.linqs.psl.database.Database;
 import org.linqs.psl.model.rule.Rule;
 import org.linqs.psl.reasoner.term.streaming.StreamingIterator;
 import org.linqs.psl.reasoner.term.streaming.StreamingTermStore;
 
 import java.util.List;
 
-/**
- * A term store that iterates over ground queries directly (obviating the GroundRuleStore).
- * Note that the iterators given by this class are meant to be exhausted (at least the first time).
- * Remember that this class will internally iterate over an unknown number of groundings.
- * So interrupting the iteration can cause the term count to be incorrect.
- */
 public class SGDStreamingTermStore extends StreamingTermStore<SGDObjectiveTerm> {
-    public SGDStreamingTermStore(List<Rule> rules, AtomManager atomManager, SGDTermGenerator termGenerator) {
-        super(rules, atomManager, termGenerator);
+    public SGDStreamingTermStore(List<Rule> rules, Database database) {
+        super(rules, database, new SGDTermGenerator());
     }
 
     @Override
     protected StreamingIterator<SGDObjectiveTerm> getGroundingIterator() {
         return new SGDStreamingGroundingIterator(
-                this, rules, atomManager, termGenerator,
-                termCache, termPool, termBuffer, volatileBuffer, pageSize, numPages);
+                this, rules, termCache, termPool, termBuffer, pageSize, numPages);
     }
 
     @Override
     protected StreamingIterator<SGDObjectiveTerm> getCacheIterator() {
         return new SGDStreamingCacheIterator(
-                this, false, termCache, termPool,
-                termBuffer, volatileBuffer, shufflePage, shuffleMap, randomizePageAccess, numPages);
-    }
-
-    @Override
-    protected StreamingIterator<SGDObjectiveTerm> getNoWriteIterator() {
-        return new SGDStreamingCacheIterator(
-                this, true, termCache, termPool,
-                termBuffer, volatileBuffer, shufflePage, shuffleMap, randomizePageAccess, numPages);
+                this, termCache, termPool,
+                termBuffer, shufflePage, shuffleMap, randomizePageAccess, numPages);
     }
 }

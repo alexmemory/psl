@@ -1,7 +1,7 @@
 /*
  * This file is part of the PSL software.
  * Copyright 2011-2015 University of Maryland
- * Copyright 2013-2022 The Regents of the University of California
+ * Copyright 2013-2023 The Regents of the University of California
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -21,7 +21,6 @@ import org.linqs.psl.model.predicate.Predicate;
 import org.linqs.psl.model.term.Constant;
 import org.linqs.psl.model.term.VariableTypeMap;
 import org.linqs.psl.reasoner.function.FunctionTerm;
-import org.linqs.psl.reasoner.term.ReasonerLocalVariable;
 import org.linqs.psl.util.StringUtils;
 
 /**
@@ -29,10 +28,13 @@ import org.linqs.psl.util.StringUtils;
  *
  * A GroundAtom has a truth value.
  */
-public abstract class GroundAtom extends Atom implements Comparable<GroundAtom>, FunctionTerm, ReasonerLocalVariable {
+public abstract class GroundAtom extends Atom implements Comparable<GroundAtom>, FunctionTerm {
+    protected int index;
     protected float value;
+    protected short partition;
+    protected boolean fixed;
 
-    protected GroundAtom(Predicate predicate, Constant[] args, float value) {
+    protected GroundAtom(Predicate predicate, Constant[] args, float value, short partition) {
         super(predicate, args);
 
         if (value < 0.0f || value > 1.0f) {
@@ -41,6 +43,10 @@ public abstract class GroundAtom extends Atom implements Comparable<GroundAtom>,
                     value, predicate, StringUtils.join(", ", args)));
         }
         this.value = value;
+
+        this.index = -1;
+        this.partition = partition;
+        this.fixed = true;
     }
 
     @Override
@@ -54,6 +60,20 @@ public abstract class GroundAtom extends Atom implements Comparable<GroundAtom>,
     @Override
     public float getValue() {
         return value;
+    }
+
+    public short getPartition() {
+        return partition;
+    }
+
+    public int getIndex() {
+        return index;
+    }
+
+    public boolean isFixed() { return fixed; }
+
+    public void setIndex(int index) {
+        this.index = index;
     }
 
     @Override

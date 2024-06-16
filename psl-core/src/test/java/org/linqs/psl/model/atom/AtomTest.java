@@ -1,7 +1,7 @@
 /*
  * This file is part of the PSL software.
  * Copyright 2011-2015 University of Maryland
- * Copyright 2013-2022 The Regents of the University of California
+ * Copyright 2013-2023 The Regents of the University of California
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -513,7 +513,7 @@ public class AtomTest extends PSLBaseTest {
             args[0] = new IntegerAttribute(i);
 
             try {
-                new ObservedAtom(singleInt, args, badValues[i]);
+                new UnmanagedObservedAtom(singleInt, args, badValues[i]);
                 fail("IllegalArgumentException not thrown as expected on index " + i + ", value: " + badValues[i]);
             } catch (IllegalArgumentException ex) {
                 // Expected

@@ -1,7 +1,7 @@
 /*
  * This file is part of the PSL software.
  * Copyright 2011-2015 University of Maryland
- * Copyright 2013-2022 The Regents of the University of California
+ * Copyright 2013-2023 The Regents of the University of California
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -19,16 +19,21 @@ package org.linqs.psl.database;
 
 public class Partition {
     /**
-     * When grounding with lazy atoms, we will initially set their partition
+     * When doing partial grounding, we will initially set their partition
      * value to this so that we can tell them apart.
      * Afterwards, they will be reset to the correct value (the write partition
      * of the database).
      * Note that no valid partition is actually allowed to have negative values.
      */
-    public static final int SPECIAL_WRITE_ID = -1;
-    public static final int SPECIAL_READ_ID = -2;
+    public static final short SPECIAL_WRITE_ID = -1;
+    public static final short SPECIAL_READ_ID = -2;
 
-    private final int id;
+    /**
+     * Special partition for unmanaged atoms.
+     */
+    public static final short SPECIAL_UNMANAGED_ID = -99;
+
+    private final short id;
     private final String name;
 
     /**
@@ -36,14 +41,14 @@ public class Partition {
      *
      * @param id non-negative identifier
      */
-    public Partition(int id, String name) {
+    public Partition(short id, String name) {
         assert(id >= 0);
 
         this.id = id;
         this.name = name;
     }
 
-    public int getID() {
+    public short getID() {
         return id;
     }
 

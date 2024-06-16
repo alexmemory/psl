@@ -1,7 +1,7 @@
 '''
 This file is part of the PSL software.
 Copyright 2011-2015 University of Maryland
-Copyright 2013-2022 The Regents of the University of California
+Copyright 2013-2023 The Regents of the University of California
 
 Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
@@ -188,6 +188,9 @@ class Rule(object):
         return self._squared
 
     def __str__(self):
+        return self.to_string()
+
+    def __repr__(self):
         return self.to_string()
 
     def to_string(self, weight_places: int = None):

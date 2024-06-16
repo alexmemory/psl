@@ -1,7 +1,7 @@
 /*
  * This file is part of the PSL software.
  * Copyright 2011-2015 University of Maryland
- * Copyright 2013-2022 The Regents of the University of California
+ * Copyright 2013-2023 The Regents of the University of California
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -100,12 +100,6 @@ public abstract class AbstractGroundArithmeticRule implements GroundRule {
             atomSet.add(atom);
         }
         return atomSet;
-    }
-
-    @Override
-    public List<GroundRule> negate() {
-        // TODO(eriq)
-        throw new UnsupportedOperationException("Negating arithmetic rules not yet supported.");
     }
 
     @Override

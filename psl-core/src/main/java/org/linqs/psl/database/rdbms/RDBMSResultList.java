@@ -1,7 +1,7 @@
 /*
  * This file is part of the PSL software.
  * Copyright 2011-2015 University of Maryland
- * Copyright 2013-2022 The Regents of the University of California
+ * Copyright 2013-2023 The Regents of the University of California
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -22,6 +22,7 @@ import org.linqs.psl.model.term.Constant;
 import org.linqs.psl.model.term.Variable;
 
 import java.util.ArrayList;
+import java.util.Collection;
 import java.util.Collections;
 import java.util.HashMap;
 import java.util.Iterator;
@@ -50,6 +51,11 @@ public class RDBMSResultList implements ResultList {
         }
 
         varMap.put(var, Integer.valueOf(pos));
+    }
+
+    @Override
+    public void reuse(Collection<Constant[]> reuseConstants) {
+        // Unsupported.
     }
 
     @Override

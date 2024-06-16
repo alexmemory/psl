@@ -1,7 +1,7 @@
 /*
  * This file is part of the PSL software.
  * Copyright 2011-2015 University of Maryland
- * Copyright 2013-2022 The Regents of the University of California
+ * Copyright 2013-2023 The Regents of the University of California
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -19,11 +19,11 @@ package org.linqs.psl.database.rdbms.driver;
 
 import org.linqs.psl.database.Partition;
 import org.linqs.psl.database.rdbms.PredicateInfo;
-import org.linqs.psl.database.rdbms.TableStats;
 import org.linqs.psl.model.term.ConstantType;
 import org.linqs.psl.util.Parallel;
 
 import com.healthmarketscience.sqlbuilder.CreateTableQuery;
+import com.healthmarketscience.sqlbuilder.SelectQuery;
 import com.zaxxer.hikari.HikariConfig;
 import com.zaxxer.hikari.HikariDataSource;
 import org.slf4j.Logger;
@@ -31,6 +31,7 @@ import org.slf4j.LoggerFactory;
 
 import java.sql.Connection;
 import java.sql.SQLException;
+import java.sql.Statement;
 
 /**
  * An abstract class  for a specific RDBMS backend.
@@ -39,7 +40,7 @@ import java.sql.SQLException;
 public abstract class DatabaseDriver {
     private static final Logger log = LoggerFactory.getLogger(DatabaseDriver.class);
 
-    protected final HikariDataSource dataSource;
+    protected HikariDataSource dataSource;
 
     public DatabaseDriver(String driverClass, String connectionString, boolean clearDatabase) {
         // Load the driver class.
@@ -66,7 +67,10 @@ public abstract class DatabaseDriver {
      * Close out any outstanding connections and cleanup.
      */
     public void close() {
-        dataSource.close();
+        if (dataSource != null) {
+            dataSource.close();
+            dataSource = null;
+        }
     }
 
     /**
@@ -140,34 +144,43 @@ public abstract class DatabaseDriver {
     public abstract String getUpsert(String tableName, String[] columns, String[] keyColumns);
 
     /**
-     * Get a string aggregating expression (one that
-     * would appear in the SELECT clause of a grouping query.
-     * Postgres uses STRING_AGG and H2 use GROUP_CONCAT.
-     */
-    public abstract String getStringAggregate(String columnName, String delimiter, boolean distinct);
-
-    /**
-     * Get some statistics for a table.
-     */
-    public abstract TableStats getTableStats(PredicateInfo predicate);
-
-    /**
      * Make sure that all the database-level stats are up-to-date.
      * Is generally called after insertion and indexing.
      */
     public abstract void updateDBStats();
 
     /**
-     * Make sure that all the table statistics are up-to-date.
-     * Is generally called after insertion and indexing.
+     * Take in a select query and return a select query string that limits the number of results to the specified amount.
      */
-    public abstract void updateTableStats(PredicateInfo predicate);
+    public String setLimit(SelectQuery query, int count) {
+        query.setFetchNext(count);
+        return query.validate().toString();
+    }
+
+    public boolean canExplain() {
+        return false;
+    }
+
+    public boolean canConcurrentWrite() {
+        return true;
+    }
 
     /**
      * Get query planing statistics for the given select statement.
      */
     public ExplainResult explain(String queryString) {
         throw new UnsupportedOperationException(this.getClass() + " does not support EXPLAIN.");
+    }
+
+    protected void executeUpdate(String sql) {
+        try (
+            Connection connection = getConnection();
+            Statement stmt = connection.createStatement();
+        ) {
+            stmt.executeUpdate(sql);
+        } catch (SQLException ex) {
+            throw new RuntimeException("Failed to execute a general update: [" + sql + "].", ex);
+        }
     }
 
     public static class ExplainResult {

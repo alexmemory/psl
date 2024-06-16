@@ -1,7 +1,7 @@
 /*
  * This file is part of the PSL software.
  * Copyright 2011-2015 University of Maryland
- * Copyright 2013-2022 The Regents of the University of California
+ * Copyright 2013-2023 The Regents of the University of California
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -21,7 +21,6 @@ import org.linqs.psl.application.learning.weight.WeightLearningApplication;
 import org.linqs.psl.application.learning.weight.search.WeightSampler;
 import org.linqs.psl.config.Options;
 import org.linqs.psl.database.Database;
-import org.linqs.psl.model.Model;
 import org.linqs.psl.model.rule.Rule;
 import org.linqs.psl.util.FloatMatrix;
 import org.linqs.psl.util.ListUtils;
@@ -63,12 +62,9 @@ public class GaussianProcessPrior extends WeightLearningApplication {
      */
     private boolean useProvidedWeight;
 
-    public GaussianProcessPrior(Model model, Database rvDB, Database observedDB) {
-        this(model.getRules(), rvDB, observedDB);
-    }
-
-    public GaussianProcessPrior(List<Rule> rules, Database rvDB, Database observedDB) {
-        super(rules, rvDB, observedDB);
+    public GaussianProcessPrior(List<Rule> rules, Database trainTargetDatabase, Database trainTruthDatabase,
+                                Database validationTargetDatabase, Database validationTruthDatabase, boolean runValidation) {
+        super(rules, trainTargetDatabase, trainTruthDatabase, validationTargetDatabase, validationTruthDatabase, runValidation);
 
         maxIterations = Options.WLA_GPP_MAX_ITERATIONS.getInt();
         maxConfigs = Options.WLA_GPP_MAX_CONFIGS.getInt();
@@ -83,6 +79,10 @@ public class GaussianProcessPrior extends WeightLearningApplication {
         space = GaussianProcessKernel.Space.valueOf(Options.WLA_GPP_KERNEL_SPACE.getString().toUpperCase());
 
         weightSampler = new WeightSampler(mutableRules.size());
+
+        if (this.runValidation) {
+            throw new IllegalArgumentException("Validation is not supported by GaussianProcessPrior weight learning applications.");
+        }
     }
 
     private void reset() {
@@ -112,7 +112,7 @@ public class GaussianProcessPrior extends WeightLearningApplication {
     }
 
     private void setInitialConfigValAndStd(WeightConfig initialConfig) {
-        float initialStd = (float)evaluator.getNormalizedMaxRepMetric() - initialConfig.valueAndStd.value;
+        float initialStd = (float)evaluation.getNormalizedMaxRepMetric() - initialConfig.valueAndStd.value;
 
         for (int i = 0; i < configs.size(); i++) {
             WeightConfig config = configs.get(i);
@@ -123,6 +123,12 @@ public class GaussianProcessPrior extends WeightLearningApplication {
 
     @Override
     protected void doLearn() {
+        if (evaluation == null) {
+            throw new IllegalStateException(String.format(
+                    "No evaluation has been set for weight learning method (%s), which is required for search-based methods.",
+                    getClass().getName()));
+        }
+
         String currentLocation = null;
 
         // Very important to define a good kernel.
@@ -246,7 +252,7 @@ public class GaussianProcessPrior extends WeightLearningApplication {
             mutableRules.get(i).setWeight(config.config[i]);
         }
 
-        inMPEState = false;
+        inTrainingMAPState = false;
     }
 
     protected List<WeightConfig> getConfigs() {
@@ -362,9 +368,9 @@ public class GaussianProcessPrior extends WeightLearningApplication {
     // Get metric value like accuracy.
     protected double getFunctionValue(WeightConfig config) {
         setWeights(config);
-        computeMPEState();
-        evaluator.compute(trainingMap);
-        return evaluator.getNormalizedRepMetric();
+        computeTrainingMAPState();
+        evaluation.compute(trainingMap);
+        return evaluation.getNormalizedRepMetric();
     }
 
     // Exploration strategy

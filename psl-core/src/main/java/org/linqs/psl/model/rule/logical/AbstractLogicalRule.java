@@ -1,7 +1,7 @@
 /*
  * This file is part of the PSL software.
  * Copyright 2011-2015 University of Maryland
- * Copyright 2013-2022 The Regents of the University of California
+ * Copyright 2013-2023 The Regents of the University of California
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -17,15 +17,17 @@
  */
 package org.linqs.psl.model.rule.logical;
 
+import org.linqs.psl.database.Database;
+import org.linqs.psl.database.PersistedAtomManagementException;
+import org.linqs.psl.database.RawQuery;
 import org.linqs.psl.database.QueryResultIterable;
-import org.linqs.psl.database.atom.AtomManager;
-import org.linqs.psl.database.rdbms.RDBMSDatabase;
-import org.linqs.psl.database.rdbms.RawQuery;
-import org.linqs.psl.grounding.GroundRuleStore;
+import org.linqs.psl.grounding.Grounding;
 import org.linqs.psl.model.atom.Atom;
 import org.linqs.psl.model.atom.GroundAtom;
+import org.linqs.psl.model.atom.ObservedAtom;
 import org.linqs.psl.model.atom.QueryAtom;
 import org.linqs.psl.model.atom.RandomVariableAtom;
+import org.linqs.psl.model.atom.UnmanagedRandomVariableAtom;
 import org.linqs.psl.model.formula.Formula;
 import org.linqs.psl.model.formula.FormulaAnalysis;
 import org.linqs.psl.model.formula.Negation;
@@ -36,6 +38,7 @@ import org.linqs.psl.model.rule.GroundRule;
 import org.linqs.psl.model.term.Constant;
 import org.linqs.psl.model.term.Term;
 import org.linqs.psl.model.term.Variable;
+import org.linqs.psl.reasoner.term.TermStore;
 import org.linqs.psl.util.HashCode;
 import org.linqs.psl.util.Logger;
 import org.linqs.psl.util.MathUtils;
@@ -124,9 +127,10 @@ public abstract class AbstractLogicalRule extends AbstractRule {
     }
 
     @Override
-    public long groundAll(AtomManager atomManager, GroundRuleStore groundRuleStore) {
-        QueryResultIterable queryResults = atomManager.executeGroundingQuery(negatedDNF.getQueryFormula());
-        return groundAll(queryResults, atomManager, groundRuleStore);
+    public long groundAll(TermStore termStore, Grounding.GroundRuleCallback groundRuleCallback) {
+        try (QueryResultIterable queryResults = termStore.getDatabase().executeGroundingQuery(negatedDNF.getQueryFormula())) {
+            return groundAll(queryResults, termStore, groundRuleCallback);
+        }
     }
 
     @Override
@@ -150,50 +154,54 @@ public abstract class AbstractLogicalRule extends AbstractRule {
     }
 
     @Override
-    public RawQuery getGroundingQuery(AtomManager atomManager) {
-        return new RawQuery((RDBMSDatabase)atomManager.getDatabase(), getRewritableGroundingFormula());
+    public RawQuery getGroundingQuery(Database database) {
+        return new RawQuery(database, getRewritableGroundingFormula());
     }
 
     @Override
-    public void ground(Constant[] constants, Map<Variable, Integer> variableMap, AtomManager atomManager, List<GroundRule> results) {
-        results.add(ground(constants, variableMap, atomManager));
+    public void ground(Constant[] constants, Map<Variable, Integer> variableMap, Database database, List<GroundRule> results) {
+        results.add(ground(constants, variableMap, database));
     }
 
-    private GroundRule ground(Constant[] constants, Map<Variable, Integer> variableMap, AtomManager atomManager) {
+    private GroundRule ground(Constant[] constants, Map<Variable, Integer> variableMap, Database database) {
         // Get the grounding resources for this thread,
         if (!Parallel.hasThreadObject(groundingResourcesKey)) {
             Parallel.putThreadObject(groundingResourcesKey, new GroundingResources(negatedDNF));
         }
         GroundingResources resources = (GroundingResources)Parallel.getThreadObject(groundingResourcesKey);
 
-        return groundInternal(constants, variableMap, atomManager, resources);
+        return groundInternal(constants, variableMap, database, resources);
     }
 
-    public long groundAll(QueryResultIterable groundVariables, AtomManager atomManager, GroundRuleStore groundRuleStore) {
-        // We will manually handle these in the grounding process.
-        // We do not want to throw too early because the ground rule may turn out to be trivial in the end.
-        boolean oldAccessExceptionState = atomManager.enableAccessExceptions(false);
-        long initialCount = groundRuleStore.size();
+    public long groundAll(QueryResultIterable groundVariables, TermStore termStore, Grounding.GroundRuleCallback groundRuleCallback) {
+        long initialCount = termStore.size();
 
-        final AtomManager finalAtomManager = atomManager;
-        final GroundRuleStore finalGroundRuleStore = groundRuleStore;
+        final Database finalDatabase = termStore.getDatabase();
+        final TermStore finalTermStore = termStore;
         final Map<Variable, Integer> variableMap = groundVariables.getVariableMap();
 
-        Parallel.foreach(groundVariables, new Parallel.Worker<Constant[]>() {
+        Parallel.foreachBatch(groundVariables, 100, new Parallel.Worker<List<Constant[]>>() {
             @Override
-            public void work(long index, Constant[] row) {
-                GroundRule groundRule = ground(row, variableMap, finalAtomManager);
-                if (groundRule != null) {
-                    finalGroundRuleStore.addGroundRule(groundRule);
+            public void work(long size, List<Constant[]> rows) {
+                for (int i = 0; i < size; i++) {
+                    GroundRule groundRule = ground(rows.get(i), variableMap, finalDatabase);
+                    if (groundRule != null) {
+                        finalTermStore.add(groundRule);
+
+                        if (groundRuleCallback != null) {
+                            groundRuleCallback.call(groundRule);
+                        }
+                    }
                 }
+
+                groundVariables.reuse(rows);
             }
         });
 
-        long groundCount = groundRuleStore.size() - initialCount;
-        atomManager.enableAccessExceptions(oldAccessExceptionState);
+        long termCount = termStore.size() - initialCount;
 
-        log.debug("Grounded {} instances of rule {}", groundCount, this);
-        return groundCount;
+        log.debug("Grounded {} terms from rule {}", termCount, this);
+        return termCount;
     }
 
     @Override
@@ -233,7 +241,7 @@ public abstract class AbstractLogicalRule extends AbstractRule {
     protected abstract AbstractGroundLogicalRule groundFormulaInstance(List<GroundAtom> positiveAtoms, List<GroundAtom> negativeAtoms);
 
     private GroundRule groundInternal(Constant[] row, Map<Variable, Integer> variableMap,
-            AtomManager atomManager, GroundingResources resources) {
+            Database database, GroundingResources resources) {
         resources.positiveAtoms.clear();
         resources.negativeAtoms.clear();
         resources.accessExceptionAtoms.clear();
@@ -262,8 +270,8 @@ public abstract class AbstractLogicalRule extends AbstractRule {
                 continue;
             }
 
-            double result = ((GroundingOnlyPredicate)atom.getPredicate()).computeValue(atom, variableMap, row);
-            if (MathUtils.equals(result, 0.0)) {
+            float result = ((GroundingOnlyPredicate)atom.getPredicate()).computeValue(atom, variableMap, row);
+            if (MathUtils.equals(result, 0.0f)) {
                 return null;
             }
         }
@@ -275,24 +283,24 @@ public abstract class AbstractLogicalRule extends AbstractRule {
                 continue;
             }
 
-            double result = ((GroundingOnlyPredicate)atom.getPredicate()).computeValue(atom, variableMap, row);
-            if (MathUtils.equals(result, 1.0)) {
+            float result = ((GroundingOnlyPredicate)atom.getPredicate()).computeValue(atom, variableMap, row);
+            if (MathUtils.equals(result, 1.0f)) {
                 return null;
             }
         }
 
         // Ground the atoms in this ground rule.
 
-        short positiveRVACount = createAtoms(atomManager, variableMap, resources, negatedDNF.getPosLiterals(), row,
-                resources.positiveAtomArgs, resources.positiveAtoms, 0.0);
+        short positiveRVACount = createAtoms(database, variableMap, resources, negatedDNF.getPosLiterals(), row,
+                resources.positiveAtomArgs, resources.positiveAtoms, 0.0f);
         if (positiveRVACount == -1) {
             // Trivial.
             return null;
         }
         rvaCount += positiveRVACount;
 
-        short negativeRVACount = createAtoms(atomManager, variableMap, resources, negatedDNF.getNegLiterals(), row,
-                resources.negativeAtomArgs, resources.negativeAtoms, 1.0);
+        short negativeRVACount = createAtoms(database, variableMap, resources, negatedDNF.getNegLiterals(), row,
+                resources.negativeAtomArgs, resources.negativeAtoms, 1.0f);
         if (negativeRVACount == -1) {
             // Trivial.
             return null;
@@ -306,22 +314,16 @@ public abstract class AbstractLogicalRule extends AbstractRule {
 
         // We got an access error and the ground rule was not trivial.
         if (resources.accessExceptionAtoms.size() != 0) {
-            RuntimeException ex = new RuntimeException(String.format(
-                    "Found one or more RandomVariableAtoms (target ground atom)" +
-                    " that were not explicitly specified in the targets." +
-                    " Offending atom(s): %s." +
-                    " This typically means that your specified target set is insufficient." +
-                    " This was encountered during the grounding of the rule: [%s].",
-                    resources.accessExceptionAtoms, this));
-            atomManager.reportAccessException(ex, resources.accessExceptionAtoms.iterator().next());
+            PersistedAtomManagementException.report(resources.accessExceptionAtoms, this);
+            return null;
         }
 
         return groundFormulaInstance(resources.positiveAtoms, resources.negativeAtoms);
     }
 
-    private short createAtoms(AtomManager atomManager, Map<Variable, Integer> variableMap,
+    private short createAtoms(Database database, Map<Variable, Integer> variableMap,
             GroundingResources resources, List<Atom> literals, Constant[] row,
-            Constant[][] argumentBuffer, List<GroundAtom> groundAtoms, double trivialValue) {
+            Constant[][] argumentBuffer, List<GroundAtom> groundAtoms, float trivialValue) {
         GroundAtom atom = null;
         short rvaCount = 0;
 
@@ -331,23 +333,25 @@ public abstract class AbstractLogicalRule extends AbstractRule {
                 continue;
             }
 
-            atom = ((QueryAtom)literals.get(i)).ground(atomManager, row, variableMap, argumentBuffer[i], trivialValue);
+            atom = ((QueryAtom)literals.get(i)).ground(database, row, variableMap, argumentBuffer[i], trivialValue);
             if (atom == null) {
                 return -1;
             }
 
-            if (atom instanceof RandomVariableAtom) {
+            if ((atom instanceof ObservedAtom) && MathUtils.equals(atom.getValue(), trivialValue)) {
+                // This rule is trivially satisfied by a constant, do not ground it.
+                return -1;
+            }
+
+            if (atom instanceof UnmanagedRandomVariableAtom) {
                 // If we got an atom that is in violation of an access policy, then we may need to throw an exception.
                 // First we will check to see if the ground rule is trivial,
                 // then only throw if if it is not.
-                if (((RandomVariableAtom)atom).getAccessException()) {
-                    resources.accessExceptionAtoms.add((RandomVariableAtom)atom);
-                }
+                resources.accessExceptionAtoms.add(atom);
+            }
 
+            if (atom instanceof RandomVariableAtom) {
                 rvaCount++;
-            } else if (MathUtils.equals(atom.getValue(), trivialValue)) {
-                // This rule is trivially satisfied by a constant, do not ground it.
-                return -1;
             }
 
             groundAtoms.add(atom);

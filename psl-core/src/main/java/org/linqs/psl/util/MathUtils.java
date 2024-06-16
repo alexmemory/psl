@@ -1,7 +1,7 @@
 /*
  * This file is part of the PSL software.
  * Copyright 2011-2015 University of Maryland
- * Copyright 2013-2022 The Regents of the University of California
+ * Copyright 2013-2023 The Regents of the University of California
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -28,7 +28,7 @@ public final class MathUtils {
     public static final double STRICT_EPSILON = 1e-8;
 
     public static final float EPSILON_FLOAT = 1e-4f;
-    public static final float RELAXED_EPSILON_FLOAT = 5e-3f;
+    public static final float RELAXED_EPSILON_FLOAT = 5e-2f;
     public static final float STRICT_EPSILON_FLOAT = 1e-6f;
 
     // Static only.

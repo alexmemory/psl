@@ -1,7 +1,7 @@
 /*
  * This file is part of the PSL software.
  * Copyright 2011-2015 University of Maryland
- * Copyright 2013-2022 The Regents of the University of California
+ * Copyright 2013-2023 The Regents of the University of California
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -25,27 +25,30 @@ import org.junit.Test;
 
 public class MiscTest extends RuntimeTest {
     @Test
-    public void testHelp() {
+    public void testHelpOptions() {
         RuntimeOptions.HELP.set(true);
-        run();
+        run(new RuntimeConfig());
     }
 
     @Test
-    public void testVersion() {
+    public void testHelpConfig() {
+        RuntimeConfig config = new RuntimeConfig();
+        config.options.put(RuntimeOptions.HELP.name(), "true");
+
+        run(config);
+    }
+
+    @Test
+    public void testVersionOptions() {
         RuntimeOptions.VERSION.set(true);
-        run();
+        run(new RuntimeConfig());
     }
 
     @Test
-    public void testInferAndLearn() {
-        RuntimeOptions.INFERENCE.set(true);
-        RuntimeOptions.LEARN.set(true);
+    public void testVersionConfig() {
+        RuntimeConfig config = new RuntimeConfig();
+        config.options.put(RuntimeOptions.VERSION.name(), "true");
 
-        try {
-            run();
-            fail("Error not thrown when both inference and learning is enabled.");
-        } catch (IllegalStateException ex) {
-            // Expected.
-        }
+        run(config);
     }
 }

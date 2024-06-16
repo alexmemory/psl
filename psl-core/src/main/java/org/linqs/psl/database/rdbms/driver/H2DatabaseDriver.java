@@ -1,7 +1,7 @@
 /*
  * This file is part of the PSL software.
  * Copyright 2011-2015 University of Maryland
- * Copyright 2013-2022 The Regents of the University of California
+ * Copyright 2013-2023 The Regents of the University of California
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -17,19 +17,12 @@
  */
 package org.linqs.psl.database.rdbms.driver;
 
-import org.linqs.psl.database.rdbms.PredicateInfo;
-import org.linqs.psl.database.rdbms.TableStats;
 import org.linqs.psl.model.term.ConstantType;
+import org.linqs.psl.util.FileUtils;
 import org.linqs.psl.util.ListUtils;
 import org.linqs.psl.util.Logger;
-import org.linqs.psl.util.Parallel;
 import org.linqs.psl.util.StringUtils;
 
-import java.sql.Connection;
-import java.sql.PreparedStatement;
-import java.sql.ResultSet;
-import java.sql.SQLException;
-import java.sql.Statement;
 import java.util.ArrayList;
 import java.util.List;
 
@@ -40,43 +33,62 @@ public class H2DatabaseDriver extends DatabaseDriver {
 
     private static final Logger log = Logger.getLogger(H2DatabaseDriver.class);
 
+    public static final int LOCK_TIMEOUT_MS = 5 * 60 * 1000;
+
     /**
      * Constructor for the H2 database driver.
      * @param dbType Type of database, either Disk or Memory.
      * @param path Path to database on disk, or name if type is Memory.
-     * @param clearDatabase Whether to perform a DROP ALL on the database after connecting.
+     * @param clear Whether to perform a DROP ALL on the database after connecting.
      */
-    public H2DatabaseDriver(Type dbType, String path, boolean clearDatabase) {
-        super("org.h2.Driver", buildConnectionString(dbType, path), clearDatabase);
+    public H2DatabaseDriver(Type dbType, String path, boolean clear) {
+        super("org.h2.Driver", buildConnectionString(dbType, path), checkClearDatabase(dbType, path, clear));
 
         log.debug("Connected to H2 database: " + path);
     }
 
     private static String buildConnectionString(Type dbType, String path) {
+        String connectionString = "jdbc:h2";
+
         switch (dbType) {
             case Disk:
-                return "jdbc:h2:" + path;
+                connectionString += ":" + path;
+                break;
             case Memory:
-                return "jdbc:h2:mem:" + path;
+                connectionString += ":mem:" + path;
+                break;
             default:
                 throw new IllegalArgumentException("Unknown database type: " + dbType);
         }
+
+        connectionString += ";LOCK_TIMEOUT=" + LOCK_TIMEOUT_MS;
+
+        return connectionString;
+    }
+
+    /**
+     * H2 has some additional issues with clearing databases, it is easier just to remove the files.
+     */
+    private static boolean checkClearDatabase(Type dbType, String path, boolean clear) {
+        if (!clear) {
+            return false;
+        }
+
+        if (dbType == Type.Memory) {
+            return true;
+        }
+
+        // Manually delete the main database and possible trace database.
+        FileUtils.delete(path + ".mv.db");
+        FileUtils.delete(path + ".trace.db");
+
+        // The database has already been cleared, but we will still pass back a true.
+        return true;
     }
 
     @Override
     protected void clearDatabase() {
         executeUpdate("DROP ALL OBJECTS");
-    }
-
-    private void executeUpdate(String sql) {
-        try (
-            Connection connection = getConnection();
-            Statement stmt = connection.createStatement();
-        ) {
-            stmt.executeUpdate(sql);
-        } catch (SQLException ex) {
-            throw new RuntimeException("Failed to execute a general update: [" + sql + "].", ex);
-        }
     }
 
     @Override
@@ -124,54 +136,7 @@ public class H2DatabaseDriver extends DatabaseDriver {
     }
 
     @Override
-    public String getStringAggregate(String columnName, String delimiter, boolean distinct) {
-        if (delimiter.contains("'")) {
-            throw new IllegalArgumentException("Delimiter (" + delimiter + ") may not contain a single quote.");
-        }
-
-        return String.format("GROUP_CONCAT(DISTINCT CAST(%s AS TEXT) SEPARATOR '%s')",
-                columnName, delimiter);
-    }
-
-    @Override
-    public TableStats getTableStats(PredicateInfo predicate) {
-        List<String> sql = new ArrayList<String>();
-        sql.add("SELECT");
-        sql.add("    UPPER(COLUMN_NAME) AS col,");
-        sql.add("    (SELECT COUNT(*) FROM " + predicate.tableName() + ") AS tableCount,");
-        sql.add("    SELECTIVITY / 100.0 AS selectivity");
-        sql.add("FROM INFORMATION_SCHEMA.COLUMNS");
-        sql.add("WHERE");
-        sql.add("    UPPER(TABLE_NAME) = '" + predicate.tableName().toUpperCase() + "'");
-        sql.add("    AND UPPER(COLUMN_NAME) NOT IN ('PARTITION_ID', 'VALUE')");
-
-        TableStats stats = null;
-
-        try (
-            Connection connection = getConnection();
-            PreparedStatement statement = connection.prepareStatement(ListUtils.join(System.lineSeparator(), sql));
-            ResultSet result = statement.executeQuery();
-        ) {
-            while (result.next()) {
-                if (stats == null) {
-                    stats = new TableStats(result.getInt(2));
-                }
-
-                stats.addColumnSelectivity(result.getString(1), result.getDouble(3));
-            }
-        } catch (SQLException ex) {
-            throw new RuntimeException("Failed to get stats from table: " + predicate.tableName(), ex);
-        }
-
-        return stats;
-    }
-
-    @Override
     public void updateDBStats() {
         executeUpdate("ANALYZE");
-    }
-
-    @Override
-    public void updateTableStats(PredicateInfo predicate) {
     }
 }

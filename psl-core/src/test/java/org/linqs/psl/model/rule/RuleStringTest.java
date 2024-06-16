@@ -1,7 +1,7 @@
 /*
  * This file is part of the PSL software.
  * Copyright 2011-2015 University of Maryland
- * Copyright 2013-2022 The Regents of the University of California
+ * Copyright 2013-2023 The Regents of the University of California
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -19,50 +19,37 @@ package org.linqs.psl.model.rule;
 
 import org.linqs.psl.database.DataStore;
 import org.linqs.psl.database.Database;
+import org.linqs.psl.database.DatabaseTestUtil;
 import org.linqs.psl.database.Partition;
-import org.linqs.psl.database.atom.AtomCache;
 import org.linqs.psl.database.loading.Inserter;
-import org.linqs.psl.database.atom.AtomManager;
-import org.linqs.psl.database.atom.SimpleAtomManager;
-import org.linqs.psl.database.rdbms.RDBMSDataStore;
-import org.linqs.psl.database.rdbms.driver.H2DatabaseDriver;
-import org.linqs.psl.database.rdbms.driver.H2DatabaseDriver.Type;
-import org.linqs.psl.grounding.GroundRuleStore;
-import org.linqs.psl.grounding.MemoryGroundRuleStore;
-import org.linqs.psl.model.atom.Atom;
-import org.linqs.psl.model.atom.GroundAtom;
-import org.linqs.psl.model.atom.ObservedAtom;
 import org.linqs.psl.model.atom.QueryAtom;
 import org.linqs.psl.model.formula.Conjunction;
 import org.linqs.psl.model.formula.Formula;
 import org.linqs.psl.model.formula.Implication;
 import org.linqs.psl.model.predicate.StandardPredicate;
-import org.linqs.psl.model.rule.GroundRule;
 import org.linqs.psl.model.rule.Rule;
 import org.linqs.psl.model.rule.arithmetic.UnweightedArithmeticRule;
 import org.linqs.psl.model.rule.arithmetic.WeightedArithmeticRule;
 import org.linqs.psl.model.rule.arithmetic.expression.ArithmeticRuleExpression;
 import org.linqs.psl.model.rule.arithmetic.expression.SummationAtomOrAtom;
-import org.linqs.psl.model.rule.arithmetic.expression.SummationVariable;
 import org.linqs.psl.model.rule.arithmetic.expression.coefficient.Coefficient;
 import org.linqs.psl.model.rule.arithmetic.expression.coefficient.ConstantNumber;
 import org.linqs.psl.model.rule.logical.UnweightedLogicalRule;
 import org.linqs.psl.model.rule.logical.WeightedLogicalRule;
-import org.linqs.psl.model.term.Constant;
 import org.linqs.psl.model.term.ConstantType;
 import org.linqs.psl.model.term.UniqueIntID;
 import org.linqs.psl.model.term.UniqueStringID;
 import org.linqs.psl.model.term.Variable;
 import org.linqs.psl.reasoner.function.FunctionComparator;
+import org.linqs.psl.reasoner.term.DummyTermStore;
+import org.linqs.psl.reasoner.term.TermStore;
 import org.linqs.psl.test.PSLBaseTest;
 
 import org.junit.After;
 import org.junit.Before;
 import org.junit.Test;
 
-import java.util.ArrayList;
 import java.util.Arrays;
-import java.util.Collections;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Set;
@@ -83,7 +70,7 @@ public class RuleStringTest extends PSLBaseTest {
 
     @Before
     public void setup() {
-        dataStore = new RDBMSDataStore(new H2DatabaseDriver(Type.Memory, this.getClass().getName(), true));
+        dataStore = DatabaseTestUtil.getDataStore();
 
         // Predicates
         singlePredicate = StandardPredicate.get("SinglePredicate", ConstantType.UniqueStringID);
@@ -126,14 +113,14 @@ public class RuleStringTest extends PSLBaseTest {
         targetPartition = dataStore.getNewPartition();
 
         Inserter inserter = dataStore.getInserter(singlePredicate, obsPartition);
-        inserter.insert(new UniqueStringID("Alice"));
-        inserter.insert(new UniqueStringID("Bob"));
+        inserter.insertRaw(new UniqueStringID("Alice"));
+        inserter.insertRaw(new UniqueStringID("Bob"));
 
         inserter = dataStore.getInserter(doublePredicate, targetPartition);
-        inserter.insert(new UniqueStringID("Alice"), new UniqueStringID("Alice"));
-        inserter.insert(new UniqueStringID("Alice"), new UniqueStringID("Bob"));
-        inserter.insert(new UniqueStringID("Bob"), new UniqueStringID("Alice"));
-        inserter.insert(new UniqueStringID("Bob"), new UniqueStringID("Bob"));
+        inserter.insertRaw(new UniqueStringID("Alice"), new UniqueStringID("Alice"));
+        inserter.insertRaw(new UniqueStringID("Alice"), new UniqueStringID("Bob"));
+        inserter.insertRaw(new UniqueStringID("Bob"), new UniqueStringID("Alice"));
+        inserter.insertRaw(new UniqueStringID("Bob"), new UniqueStringID("Bob"));
 
         Set<StandardPredicate> toClose = new HashSet<StandardPredicate>();
         database = dataStore.getDatabase(targetPartition, toClose, obsPartition);
@@ -177,8 +164,7 @@ public class RuleStringTest extends PSLBaseTest {
 
     @Test
     public void testGroundLogicalRuleString() {
-        GroundRuleStore store = new MemoryGroundRuleStore();
-        AtomManager manager = new SimpleAtomManager(database);
+        TermStore store = new DummyTermStore(database);
 
         Rule rule;
         List<String> expected;
@@ -192,8 +178,7 @@ public class RuleStringTest extends PSLBaseTest {
             "( ~( SINGLEPREDICATE('Bob') ) | ~( SINGLEPREDICATE('Alice') ) | DOUBLEPREDICATE('Bob', 'Alice') ) .",
             "( ~( SINGLEPREDICATE('Bob') ) | ~( SINGLEPREDICATE('Bob') ) | DOUBLEPREDICATE('Bob', 'Bob') ) ."
         );
-        rule.groundAll(manager, store);
-        compareGroundRules(expected, rule, store);
+        groundAndCompare(expected, rule, store);
 
         // Weighted, Squared
         rule = new WeightedLogicalRule(logicalBaseRule, 10.0f, true);
@@ -203,8 +188,7 @@ public class RuleStringTest extends PSLBaseTest {
             "10.0: ( ~( SINGLEPREDICATE('Bob') ) | ~( SINGLEPREDICATE('Alice') ) | DOUBLEPREDICATE('Bob', 'Alice') ) ^2",
             "10.0: ( ~( SINGLEPREDICATE('Bob') ) | ~( SINGLEPREDICATE('Bob') ) | DOUBLEPREDICATE('Bob', 'Bob') ) ^2"
         );
-        rule.groundAll(manager, store);
-        compareGroundRules(expected, rule, store);
+        groundAndCompare(expected, rule, store);
 
         // Weighted, Not Squared
         rule = new WeightedLogicalRule(logicalBaseRule, 10.0f, false);
@@ -214,14 +198,12 @@ public class RuleStringTest extends PSLBaseTest {
             "10.0: ( ~( SINGLEPREDICATE('Bob') ) | ~( SINGLEPREDICATE('Alice') ) | DOUBLEPREDICATE('Bob', 'Alice') )",
             "10.0: ( ~( SINGLEPREDICATE('Bob') ) | ~( SINGLEPREDICATE('Bob') ) | DOUBLEPREDICATE('Bob', 'Bob') )"
         );
-        rule.groundAll(manager, store);
-        compareGroundRules(expected, rule, store);
+        groundAndCompare(expected, rule, store);
     }
 
     @Test
     public void testGroundArithmeticRuleString() {
-        GroundRuleStore store = new MemoryGroundRuleStore();
-        AtomManager manager = new SimpleAtomManager(database);
+        TermStore store = new DummyTermStore(database);
 
         Rule rule;
         List<String> expected;
@@ -234,8 +216,7 @@ public class RuleStringTest extends PSLBaseTest {
             "1.0 * SINGLEPREDICATE('Bob') + 1.0 * SINGLEPREDICATE('Alice') + 1.0 * DOUBLEPREDICATE('Bob', 'Alice') = 1.0 .",
             "1.0 * SINGLEPREDICATE('Bob') + 1.0 * SINGLEPREDICATE('Bob') + 1.0 * DOUBLEPREDICATE('Bob', 'Bob') = 1.0 ."
         );
-        rule.groundAll(manager, store);
-        compareGroundRules(expected, rule, store);
+        groundAndCompare(expected, rule, store);
 
         // Weighted, Squared
         rule = new WeightedArithmeticRule(arithmeticBaseRule, 10.0f, true);
@@ -249,8 +230,7 @@ public class RuleStringTest extends PSLBaseTest {
             "10.0: 1.0 * SINGLEPREDICATE('Bob') + 1.0 * SINGLEPREDICATE('Bob') + 1.0 * DOUBLEPREDICATE('Bob', 'Bob') <= 1.0 ^2",
             "10.0: 1.0 * SINGLEPREDICATE('Bob') + 1.0 * SINGLEPREDICATE('Bob') + 1.0 * DOUBLEPREDICATE('Bob', 'Bob') >= 1.0 ^2"
         );
-        rule.groundAll(manager, store);
-        compareGroundRules(expected, rule, store);
+        groundAndCompare(expected, rule, store);
 
         // Weighted, Not Squared
         rule = new WeightedArithmeticRule(arithmeticBaseRule, 10.0f, false);
@@ -264,8 +244,7 @@ public class RuleStringTest extends PSLBaseTest {
             "10.0: 1.0 * SINGLEPREDICATE('Bob') + 1.0 * SINGLEPREDICATE('Bob') + 1.0 * DOUBLEPREDICATE('Bob', 'Bob') <= 1.0",
             "10.0: 1.0 * SINGLEPREDICATE('Bob') + 1.0 * SINGLEPREDICATE('Bob') + 1.0 * DOUBLEPREDICATE('Bob', 'Bob') >= 1.0"
         );
-        rule.groundAll(manager, store);
-        compareGroundRules(expected, rule, store);
+        groundAndCompare(expected, rule, store);
     }
 
     @Test

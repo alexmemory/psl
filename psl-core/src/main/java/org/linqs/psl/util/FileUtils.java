@@ -1,7 +1,7 @@
 /*
  * This file is part of the PSL software.
  * Copyright 2011-2015 University of Maryland
- * Copyright 2013-2022 The Regents of the University of California
+ * Copyright 2013-2023 The Regents of the University of California
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -26,14 +26,19 @@ import java.io.IOException;
 import java.io.InputStream;
 import java.io.InputStreamReader;
 import java.io.OutputStreamWriter;
+import java.nio.charset.Charset;
 import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
 import java.nio.file.Paths;
+import java.util.Iterator;
+import java.util.NoSuchElementException;
 
 /**
  * Utilities for interfacing with files and directories.
  */
 public class FileUtils {
     private static final Logger log = Logger.getLogger(FileUtils.class);
+    public static final Charset DEFAULT_CHARSET = StandardCharsets.UTF_8;
 
     // Static only.
     private FileUtils() {}
@@ -56,7 +61,7 @@ public class FileUtils {
 
     public static BufferedWriter getBufferedWriter(File file) {
         try {
-            return new BufferedWriter(new OutputStreamWriter(new FileOutputStream(file), StandardCharsets.UTF_8));
+            return new BufferedWriter(new OutputStreamWriter(new FileOutputStream(file), DEFAULT_CHARSET));
         } catch (IOException ex) {
             throw new RuntimeException(ex);
         }
@@ -75,7 +80,15 @@ public class FileUtils {
     }
 
     public static InputStreamReader getInputStreamReader(InputStream stream) {
-        return new InputStreamReader(stream, StandardCharsets.UTF_8);
+        return new InputStreamReader(stream, DEFAULT_CHARSET);
+    }
+
+    public static Iterable<String> lines(BufferedReader reader) {
+        return IteratorUtils.newIterable(new LinesIterator(reader));
+    }
+
+    public static Iterable<String> lines(InputStream stream) {
+        return IteratorUtils.newIterable(new LinesIterator(getBufferedReader(stream)));
     }
 
     /**
@@ -173,5 +186,63 @@ public class FileUtils {
         }
 
         return Paths.get(relativeDir, basePath).toString();
+    }
+
+    public static String readFileAsString(String path) {
+        try {
+            byte[] bytes = Files.readAllBytes(Paths.get(path));
+            return new String(bytes, DEFAULT_CHARSET);
+        } catch (IOException ex) {
+            throw new RuntimeException("Failed to read file contents from: '" + path + "'.", ex);
+        }
+    }
+
+    private static class LinesIterator implements Iterator<String> {
+        private BufferedReader reader;
+        private String next;
+
+        public LinesIterator(BufferedReader reader) {
+            this.reader = reader;
+            load();
+        }
+
+        @Override
+        public String next() {
+            if (!hasNext()) {
+                throw new NoSuchElementException();
+            }
+
+            String temp = next;
+            load();
+
+            return temp;
+        }
+
+        @Override
+        public boolean hasNext() {
+            return next != null;
+        }
+
+        @Override
+        public void remove() {
+            throw new UnsupportedOperationException();
+        }
+
+        private void load() {
+            if (reader == null) {
+                return;
+            }
+
+            try {
+                next = reader.readLine();
+
+                if (next == null) {
+                    reader.close();
+                    reader = null;
+                }
+            } catch (IOException ex) {
+                throw new RuntimeException(ex);
+            }
+        }
     }
 }

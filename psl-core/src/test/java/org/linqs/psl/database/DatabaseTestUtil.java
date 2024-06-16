@@ -1,7 +1,7 @@
 /*
  * This file is part of the PSL software.
  * Copyright 2011-2015 University of Maryland
- * Copyright 2013-2022 The Regents of the University of California
+ * Copyright 2013-2023 The Regents of the University of California
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -17,9 +17,11 @@
  */
 package org.linqs.psl.database;
 
+import org.linqs.psl.database.rdbms.RDBMSDataStore;
 import org.linqs.psl.database.rdbms.driver.DatabaseDriver;
 import org.linqs.psl.database.rdbms.driver.H2DatabaseDriver;
 import org.linqs.psl.database.rdbms.driver.PostgreSQLDriver;
+import org.linqs.psl.database.rdbms.driver.SQLiteDriver;
 import org.linqs.psl.util.RandUtils;
 
 import java.io.File;
@@ -29,6 +31,20 @@ public class DatabaseTestUtil {
     private static final String PERSISTED_DB_SUFFIX = String.format("%012d", RandUtils.nextInt());
     private static final String DB_NAME = "psltest";
     private static final String DB_BASE_PATH = Paths.get(System.getProperty("java.io.tmpdir"), DB_NAME + "_" + PERSISTED_DB_SUFFIX).toString();
+
+    /**
+     * Get the default driver for tests.
+     */
+    public static DatabaseDriver getDatabaseDriver() {
+        return getSQLiteDriver();
+    }
+
+    /**
+     * Get the default data store for tests.
+     */
+    public static DataStore getDataStore() {
+        return new RDBMSDataStore(getDatabaseDriver());
+    }
 
     public static DatabaseDriver getH2Driver() {
         return getH2Driver(true, false);
@@ -72,11 +88,22 @@ public class DatabaseTestUtil {
         }
     }
 
+    public static DatabaseDriver getSQLiteDriver() {
+        return getSQLiteDriver(true, false);
+    }
+
+    public static DatabaseDriver getSQLiteDriver(boolean clear, boolean persisted) {
+        return new SQLiteDriver(!persisted, DB_BASE_PATH, clear);
+    }
+
     public static void cleanH2Driver() {
         (new File(DB_BASE_PATH + ".h2.db")).delete();
         (new File(DB_BASE_PATH + ".trace.db")).delete();
     }
 
     public static void cleanPostgresDriver() {
+    }
+
+    public static void cleanSQLiteDriver() {
     }
 }

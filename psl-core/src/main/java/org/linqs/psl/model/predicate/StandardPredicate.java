@@ -1,7 +1,7 @@
 /*
  * This file is part of the PSL software.
  * Copyright 2011-2015 University of Maryland
- * Copyright 2013-2022 The Regents of the University of California
+ * Copyright 2013-2023 The Regents of the University of California
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -25,15 +25,8 @@ import org.linqs.psl.model.term.ConstantType;
  * since the underlying storage type is not known.
  */
 public class StandardPredicate extends Predicate {
-    private boolean isBlock;
-
-    protected StandardPredicate mirror;
-
     protected StandardPredicate(String name, ConstantType[] types) {
         super(name, types);
-
-        isBlock = false;
-        mirror = null;
 
         for (ConstantType type : types) {
             if (type == ConstantType.DeferredFunctionalUniqueID) {
@@ -42,36 +35,6 @@ public class StandardPredicate extends Predicate {
                         " (and should only be used in rare cases.");
             }
         }
-    }
-
-    public void setBlock(boolean isBlock) {
-        this.isBlock = isBlock;
-    }
-
-    public boolean isBlock() {
-        return isBlock;
-    }
-
-    public void setMirror(StandardPredicate mirror) {
-        if (this.mirror != null && this.mirror != mirror) {
-            throw new IllegalArgumentException(String.format(
-                    "Mirror predicate for %s already set to %s. Cannot change to %s.",
-                    this, this.mirror, mirror));
-        }
-
-        this.mirror = mirror;
-    }
-
-    public StandardPredicate getMirror() {
-        return mirror;
-    }
-
-    /**
-     * Is this predicate one with mirror variables that are fixed during inference?
-     * Child classes that are fixed mirrors will override this.
-     */
-    public boolean isFixedMirror() {
-        return false;
     }
 
     /**

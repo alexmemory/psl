@@ -1,7 +1,7 @@
 /*
  * This file is part of the PSL software.
  * Copyright 2011-2015 University of Maryland
- * Copyright 2013-2022 The Regents of the University of California
+ * Copyright 2013-2023 The Regents of the University of California
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -45,12 +45,9 @@ public class GuidedRandomGridSearch extends RandomGridSearch {
     private int numExploreLocations;
     private Set<String> toExplore;
 
-    public GuidedRandomGridSearch(Model model, Database rvDB, Database observedDB) {
-        this(model.getRules(), rvDB, observedDB);
-    }
-
-    public GuidedRandomGridSearch(List<Rule> rules, Database rvDB, Database observedDB) {
-        super(rules, rvDB, observedDB);
+    public GuidedRandomGridSearch(List<Rule> rules, Database trainTargetDatabase, Database trainTruthDatabase,
+                                  Database validationTargetDatabase, Database validationTruthDatabase, boolean runValidation) {
+        super(rules, trainTargetDatabase, trainTruthDatabase, validationTargetDatabase, validationTruthDatabase, runValidation);
 
         maxNumSeedLocations = Options.WLA_GRGS_SEED_LOCATIONS.getInt();
         numSeedLocations = maxNumSeedLocations;
@@ -63,7 +60,7 @@ public class GuidedRandomGridSearch extends RandomGridSearch {
                 numLocations,
                 numSeedLocations + numExploreLocations * (int)(Math.pow(2, mutableRules.size())));
 
-        toExplore = new HashSet<String>(numLocations - numSeedLocations);
+        toExplore = new HashSet<String>(Math.max(10, numLocations - numSeedLocations));
     }
 
     @Override

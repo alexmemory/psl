@@ -1,7 +1,7 @@
 /*
  * This file is part of the PSL software.
  * Copyright 2011-2015 University of Maryland
- * Copyright 2013-2022 The Regents of the University of California
+ * Copyright 2013-2023 The Regents of the University of California
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -27,13 +27,13 @@ import org.linqs.psl.reasoner.function.GeneralFunction;
 import java.util.List;
 
 public class WeightedGroundArithmeticRule extends AbstractGroundArithmeticRule implements WeightedGroundRule {
-    protected WeightedGroundArithmeticRule(WeightedArithmeticRule rule, List<Float> coefficients,
+    public WeightedGroundArithmeticRule(WeightedArithmeticRule rule, List<Float> coefficients,
             List<GroundAtom> atoms, FunctionComparator comparator, float constant) {
         super(rule, coefficients, atoms, comparator, constant);
         validate();
     }
 
-    protected WeightedGroundArithmeticRule(WeightedArithmeticRule rule, float[] coefficients, GroundAtom[] atoms,
+    public WeightedGroundArithmeticRule(WeightedArithmeticRule rule, float[] coefficients, GroundAtom[] atoms,
             FunctionComparator comparator, float constant) {
         super(rule, coefficients, atoms, comparator, constant);
         validate();

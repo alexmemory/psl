@@ -1,7 +1,7 @@
 /*
  * This file is part of the PSL software.
  * Copyright 2011-2015 University of Maryland
- * Copyright 2013-2022 The Regents of the University of California
+ * Copyright 2013-2023 The Regents of the University of California
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -21,6 +21,8 @@ import org.linqs.psl.application.learning.weight.WeightLearningApplication;
 import org.linqs.psl.application.learning.weight.WeightLearningTest;
 import org.linqs.psl.config.Options;
 import org.linqs.psl.database.Database;
+import org.linqs.psl.evaluation.EvaluationInstance;
+import org.linqs.psl.evaluation.statistics.ContinuousEvaluator;
 import org.linqs.psl.model.rule.Rule;
 import org.linqs.psl.model.rule.WeightedRule;
 import org.linqs.psl.util.FloatMatrix;
@@ -34,18 +36,23 @@ import java.util.List;
 
 public class GaussianProcessPriorTest extends WeightLearningTest {
     @Override
-    protected WeightLearningApplication getWLA() {
+    protected WeightLearningApplication getBaseWLA() {
         // Do less steps for tests.
         Options.WLA_GPP_MAX_ITERATIONS.set(2);
 
-        return new GaussianProcessPrior(this.info.model.getRules(), weightLearningTrainDB, weightLearningTruthDB);
+        return new GaussianProcessPrior(this.info.model.getRules(), trainTargetDatabase, trainTruthDatabase,
+                validationTargetDatabase, validationTruthDatabase, false);
     }
 
     protected WeightLearningApplication getWLALocal() {
         // Do less steps for tests.
         Options.WLA_GPP_MAX_ITERATIONS.set(2);
 
-        return new GPPTest(this.info.model.getRules(), weightLearningTrainDB, weightLearningTruthDB);
+        WeightLearningApplication wla = new GPPTest(info.model.getRules(), trainTargetDatabase, trainTruthDatabase,
+                validationTargetDatabase, validationTruthDatabase);
+        wla.setEvaluation(new EvaluationInstance(info.predicates.get("Friends"), new ContinuousEvaluator(), true));
+
+        return wla;
     }
 
     @Test
@@ -134,7 +141,7 @@ public class GaussianProcessPriorTest extends WeightLearningTest {
         Options.WLA_GPP_MAX_ITERATIONS.set(3);
         Options.WLA_GPP_RANDOM_CONFIGS_ONLY.set(false);
 
-        GaussianProcessPrior wl = (GaussianProcessPrior) getWLALocal();
+        GaussianProcessPrior wl = (GaussianProcessPrior)getWLALocal();
         wl.doLearn();
 
         for (int i = 0; i < 3; i++) {
@@ -143,8 +150,8 @@ public class GaussianProcessPriorTest extends WeightLearningTest {
     }
 
     private static class GPPTest extends GaussianProcessPrior {
-        public GPPTest(List<Rule> rules, Database rvDB, Database observedDB) {
-            super(rules, rvDB, observedDB);
+        public GPPTest(List<Rule> rules, Database trainTargetDatabase, Database trainTruthDatabase, Database validationTargetDatabase, Database validationTruthDatabase) {
+            super(rules, trainTargetDatabase, trainTruthDatabase, validationTargetDatabase, validationTruthDatabase, false);
         }
 
         @Override

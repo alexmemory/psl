@@ -1,7 +1,7 @@
 /*
  * This file is part of the PSL software.
  * Copyright 2011-2015 University of Maryland
- * Copyright 2013-2022 The Regents of the University of California
+ * Copyright 2013-2023 The Regents of the University of California
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -26,7 +26,8 @@ import org.linqs.psl.database.Database;
 import org.linqs.psl.database.DatabaseTestUtil;
 import org.linqs.psl.database.rdbms.driver.DatabaseDriver;
 import org.linqs.psl.evaluation.statistics.ContinuousEvaluator;
-import org.linqs.psl.evaluation.statistics.Evaluator;
+import org.linqs.psl.evaluation.EvaluationInstance;
+import org.linqs.psl.grounding.Grounding;
 import org.linqs.psl.model.Model;
 import org.linqs.psl.model.atom.QueryAtom;
 import org.linqs.psl.model.atom.RandomVariableAtom;
@@ -34,6 +35,7 @@ import org.linqs.psl.model.formula.Conjunction;
 import org.linqs.psl.model.formula.Implication;
 import org.linqs.psl.model.predicate.GroundingOnlyPredicate;
 import org.linqs.psl.model.predicate.StandardPredicate;
+import org.linqs.psl.model.rule.GroundRule;
 import org.linqs.psl.model.rule.Rule;
 import org.linqs.psl.model.rule.arithmetic.UnweightedArithmeticRule;
 import org.linqs.psl.model.rule.arithmetic.WeightedArithmeticRule;
@@ -91,7 +93,7 @@ public abstract class InferenceTest extends PSLBaseTest {
     }
 
     protected DatabaseDriver getDatabaseDriver() {
-        return DatabaseTestUtil.getH2Driver();
+        return DatabaseTestUtil.getDatabaseDriver();
     }
 
     /**
@@ -101,6 +103,9 @@ public abstract class InferenceTest extends PSLBaseTest {
     @Test
     public void baseTest() {
         Set<StandardPredicate> toClose = new HashSet<StandardPredicate>();
+        toClose.add(info.predicates.get("Nice"));
+        toClose.add(info.predicates.get("Person"));
+
         Database inferDB = info.dataStore.getDatabase(info.targetPartition, toClose, info.observationPartition);
         InferenceApplication inference = getInference(info.model.getRules(), inferDB);
 
@@ -219,14 +224,22 @@ public abstract class InferenceTest extends PSLBaseTest {
             true
         ));
 
+        final List<GroundRule> groundRules = new ArrayList<GroundRule>();
+        Grounding.setGroundRuleCallback(new Grounding.GroundRuleCallback() {
+            public synchronized void call(GroundRule groundRule) {
+                groundRules.add(groundRule);
+            }
+        });
+
         Set<StandardPredicate> toClose = new HashSet<StandardPredicate>();
         Database inferDB = info.dataStore.getDatabase(info.targetPartition, toClose, info.observationPartition);
         InferenceApplication inference = getInference(info.model.getRules(), inferDB);
+        Grounding.setGroundRuleCallback(null);
 
         inference.inference();
 
         // There are 20 ground rules, and they are all trivial.
-        assertEquals(20, inference.getGroundRuleStore().size());
+        assertEquals(20, groundRules.size());
         assertEquals(0, inference.getTermStore().size());
 
         inference.close();
@@ -243,7 +256,7 @@ public abstract class InferenceTest extends PSLBaseTest {
         InferenceApplication inference = getInference(info.model.getRules(), inferDB);
 
         float preInferenceTotalValue = 0.0f;
-        for (RandomVariableAtom atom : inferDB.getAllGroundRandomVariableAtoms(info.predicates.get("Friends"))) {
+        for (RandomVariableAtom atom : inferDB.getAtomStore().getRandomVariableAtoms(info.predicates.get("Friends"))) {
             preInferenceTotalValue += atom.getValue();
         }
 
@@ -258,7 +271,7 @@ public abstract class InferenceTest extends PSLBaseTest {
         // Create a new instance of a database with an empty cache.
         inferDB = info.dataStore.getDatabase(info.targetPartition, toClose, info.observationPartition);
         float postInferenceTotalValue = 0.0f;
-        for (RandomVariableAtom atom : inferDB.getAllGroundRandomVariableAtoms(info.predicates.get("Friends"))) {
+        for (RandomVariableAtom atom : inferDB.getAtomStore().getRandomVariableAtoms(info.predicates.get("Friends"))) {
             postInferenceTotalValue += atom.getValue();
         }
 
@@ -276,7 +289,7 @@ public abstract class InferenceTest extends PSLBaseTest {
         Database inferDB = info.dataStore.getDatabase(info.targetPartition, toClose, info.observationPartition);
 
         float preInferenceTotalValue = 0.0f;
-        for (RandomVariableAtom atom : inferDB.getAllGroundRandomVariableAtoms(info.predicates.get("Friends"))) {
+        for (RandomVariableAtom atom : inferDB.getAtomStore().getRandomVariableAtoms(info.predicates.get("Friends"))) {
             preInferenceTotalValue += atom.getValue();
         }
 
@@ -291,7 +304,7 @@ public abstract class InferenceTest extends PSLBaseTest {
         // Create a new instance of a database with an empty cache.
         inferDB = info.dataStore.getDatabase(info.targetPartition, toClose, info.observationPartition);
         float postInferenceTotalValue = 0.0f;
-        for (RandomVariableAtom atom : inferDB.getAllGroundRandomVariableAtoms(info.predicates.get("Friends"))) {
+        for (RandomVariableAtom atom : inferDB.getAtomStore().getRandomVariableAtoms(info.predicates.get("Friends"))) {
             postInferenceTotalValue += atom.getValue();
         }
 
@@ -361,11 +374,63 @@ public abstract class InferenceTest extends PSLBaseTest {
         inference.inference();
 
         float sum = 0.0f;
-        for (RandomVariableAtom cachedRandomVariableAtom : inferDB.getAllCachedRandomVariableAtoms()) {
-            sum += cachedRandomVariableAtom.getValue();
+        for (RandomVariableAtom atom : inferDB.getAtomStore().getRandomVariableAtoms()) {
+            sum += atom.getValue();
         }
 
         assertEquals(1.0f, sum, 0.1f);
+
+        inference.close();
+        inferDB.close();
+    }
+
+    /**
+     * Run inference on simple models with expected MAP states.
+     */
+    @Test
+    public void testSimpleModels() {
+        // Negative prior model.
+        TestModel.ModelInformation info = TestModel.getNegativePriorModel();
+
+        // Create inference application.
+        Database inferDB = info.dataStore.getDatabase(info.targetPartition, new HashSet<StandardPredicate>(), info.observationPartition);
+        InferenceApplication inference = getInference(info.model.getRules(), inferDB);
+
+        // Test the inference application is able to find the MAP state.
+        assertEquals(0.0, inference.inference(), 0.1f);
+
+        inference.close();
+        inferDB.close();
+
+        // Prior model.
+        info = TestModel.getPriorModel();
+        inferDB = info.dataStore.getDatabase(info.targetPartition, new HashSet<StandardPredicate>(), info.observationPartition);
+        inference = getInference(info.model.getRules(), inferDB);
+
+        // Test the inference application is able to find the MAP state.
+        assertEquals(0.0, inference.inference(), 0.1f);
+
+        inference.close();
+        inferDB.close();
+
+        // Symmetry model.
+        info = TestModel.getSymmetryModel();
+        inferDB = info.dataStore.getDatabase(info.targetPartition, new HashSet<StandardPredicate>(), info.observationPartition);
+        inference = getInference(info.model.getRules(), inferDB);
+
+        // Test the inference application is able to find the MAP state.
+        assertEquals(0.0, inference.inference(), 0.1f);
+
+        inference.close();
+        inferDB.close();
+
+        // Exogenous model.
+        info = TestModel.getExogenousModel();
+        inferDB = info.dataStore.getDatabase(info.targetPartition, new HashSet<StandardPredicate>(), info.observationPartition);
+        inference = getInference(info.model.getRules(), inferDB);
+
+        // Test the inference application is able to find the MAP state.
+        assertEquals(0.0, inference.inference(), 0.1f);
 
         inference.close();
         inferDB.close();
@@ -382,10 +447,10 @@ public abstract class InferenceTest extends PSLBaseTest {
 
         Database truthDatabase = info.dataStore.getDatabase(info.truthPartition, info.dataStore.getRegisteredPredicates());
 
-        List<Evaluator> evaluators = new ArrayList<Evaluator>();
-        evaluators.add(new ContinuousEvaluator());
+        List<EvaluationInstance> evaluations = new ArrayList<EvaluationInstance>();
+        evaluations.add(new EvaluationInstance(info.predicates.get("Friends"), new ContinuousEvaluator(), true));
 
-        inference.inference(true, false, evaluators, truthDatabase);
+        inference.inference(true, false, evaluations, truthDatabase);
         inference.close();
         inferDB.close();
         truthDatabase.close();

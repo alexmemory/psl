@@ -1,7 +1,7 @@
 /*
  * This file is part of the PSL software.
  * Copyright 2011-2015 University of Maryland
- * Copyright 2013-2022 The Regents of the University of California
+ * Copyright 2013-2023 The Regents of the University of California
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -20,10 +20,6 @@ package org.linqs.psl.grounding;
 import org.linqs.psl.config.Options;
 import org.linqs.psl.database.Database;
 import org.linqs.psl.database.QueryResultIterable;
-import org.linqs.psl.database.atom.AtomManager;
-import org.linqs.psl.database.rdbms.RDBMSDataStore;
-import org.linqs.psl.database.rdbms.RDBMSDatabase;
-import org.linqs.psl.database.rdbms.driver.PostgreSQLDriver;
 import org.linqs.psl.grounding.collective.CandidateGeneration;
 import org.linqs.psl.grounding.collective.CandidateQuery;
 import org.linqs.psl.grounding.collective.Containment;
@@ -34,6 +30,7 @@ import org.linqs.psl.model.rule.GroundRule;
 import org.linqs.psl.model.rule.Rule;
 import org.linqs.psl.model.term.Constant;
 import org.linqs.psl.model.term.Variable;
+import org.linqs.psl.reasoner.term.TermStore;
 import org.linqs.psl.util.Logger;
 import org.linqs.psl.util.Parallel;
 
@@ -52,28 +49,34 @@ import java.util.Set;
 public class Grounding {
     private static final Logger log = Logger.getLogger(Grounding.class);
 
+    private static GroundRuleCallback groundRuleCallback = null;
+
     // Static only.
     private Grounding() {}
 
-    public static long groundAll(List<Rule> rules, AtomManager atomManager, GroundRuleStore groundRuleStore) {
+    public static void setGroundRuleCallback(GroundRuleCallback groundRuleCallback) {
+        Grounding.groundRuleCallback = groundRuleCallback;
+    }
+
+    public static long groundAll(List<Rule> rules, TermStore termStore) {
         boolean collective = Options.GROUNDING_COLLECTIVE.getBoolean();
         if (collective) {
-            return groundCollective(rules, atomManager, groundRuleStore);
+            return groundCollective(rules, termStore);
         }
 
-        return groundIndependent(rules, atomManager, groundRuleStore);
+        return groundIndependent(rules, termStore);
     }
 
     /**
      * Ground each of the passed in rules independently.
      */
-    private static long groundIndependent(List<Rule> rules, AtomManager atomManager, GroundRuleStore groundRuleStore) {
-        long groundCount = 0;
+    private static long groundIndependent(List<Rule> rules, TermStore termStore) {
+        long termCount = 0;
         for (Rule rule : rules) {
-            groundCount += rule.groundAll(atomManager, groundRuleStore);
+            termCount += rule.groundAll(termStore, groundRuleCallback);
         }
 
-        return groundCount;
+        return termCount;
     }
 
     /**
@@ -81,7 +84,7 @@ public class Grounding {
      * Note that collective grounding assumes that no PAM exceptions will happen,
      * so it may make optimizations based on this assumption.
      */
-    private static long groundCollective(List<Rule> rules, AtomManager atomManager, GroundRuleStore groundRuleStore) {
+    private static long groundCollective(List<Rule> rules, TermStore termStore) {
         // Rules that cannot take part in the collective process.
         List<Rule> bypassRules = new ArrayList<Rule>();
         List<Rule> collectiveRules = new ArrayList<Rule>(rules.size());
@@ -94,14 +97,14 @@ public class Grounding {
             }
         }
 
-        Set<CandidateQuery> candidates = genCandidates(collectiveRules, atomManager.getDatabase());
+        Set<CandidateQuery> candidates = genCandidates(collectiveRules, termStore.getDatabase());
 
         Set<CandidateQuery> coverage = Coverage.compute(collectiveRules, candidates);
 
-        long initialSize = groundRuleStore.size();
+        long initialSize = termStore.size();
 
         // Ground the bypassed rules.
-        groundIndependent(bypassRules, atomManager, groundRuleStore);
+        groundIndependent(bypassRules, termStore);
 
         int batchSize = Options.GROUNDING_COLLECTIVE_BATCH_SIZE.getInt();
 
@@ -113,27 +116,19 @@ public class Grounding {
             Set<Rule> toGround = new HashSet<Rule>(collectiveRules);
             toGround.retainAll(candidate.getCoveredRules());
 
-            sharedGrounding(candidate, toGround, atomManager, groundRuleStore, batchSize);
+            sharedGrounding(candidate, toGround, termStore, batchSize);
 
             collectiveRules.removeAll(candidate.getCoveredRules());
         }
 
-        return groundRuleStore.size() - initialSize;
+        return termStore.size() - initialSize;
     }
 
     private static Set<CandidateQuery> genCandidates(List<Rule> collectiveRules, Database database) {
         Set<CandidateQuery> candidates = Collections.synchronizedSet(new HashSet<CandidateQuery>());
 
-        final CandidateGeneration candidateGeneration;
-        if (!(database instanceof RDBMSDatabase)
-                || !(((RDBMSDataStore)database.getDataStore()).getDriver() instanceof PostgreSQLDriver)) {
-            log.warn("Cannot generate query candidates without a PostgreSQL database, grounding will be suboptimal.");
-            candidateGeneration = null;
-        } else {
-            candidateGeneration = new CandidateGeneration();
-        }
-
-        if (candidateGeneration == null) {
+        if (!database.getDataStore().canExplain()) {
+            log.warn("Cannot generate query candidates without EXPLAIN capabilities, grounding will be suboptimal.");
             for (Rule rule : collectiveRules) {
                 candidates.add(new CandidateQuery(rule, rule.getRewritableGroundingFormula(), 0.0));
             }
@@ -141,9 +136,10 @@ public class Grounding {
             return candidates;
         }
 
+        final CandidateGeneration candidateGeneration = new CandidateGeneration();
         final int candiatesPerRule = Options.GROUNDING_COLLECTIVE_CANDIDATE_COUNT.getInt();
 
-        final RDBMSDatabase finalDatabase = (RDBMSDatabase)database;
+        final Database finalDatabase = database;
         final Set<CandidateQuery> finalCandidates = candidates;
 
         log.debug("Generating candidates.");
@@ -164,61 +160,55 @@ public class Grounding {
     /**
      * Use the provided formula to ground all of the provided rules.
      */
-    private static long sharedGrounding(CandidateQuery candidate, Set<Rule> rules, AtomManager atomManager, GroundRuleStore groundRuleStore, int batchSize) {
+    private static long sharedGrounding(CandidateQuery candidate, Set<Rule> rules, TermStore termStore, int batchSize) {
         log.debug("Grounding {} rule(s) with query: [{}].", rules.size(), candidate.getFormula());
         for (Rule rule : rules) {
             log.trace("    " + rule);
         }
 
-        // We will manually handle these in the grounding process.
-        // We do not want to throw too early because the ground rule may turn out to be trivial in the end.
-        boolean oldAccessExceptionState = atomManager.enableAccessExceptions(false);
+        Parallel.RunTimings timings = null;
+        long termCount = -1;
 
         // Run the query.
-        QueryResultIterable queryResults = atomManager.executeGroundingQuery(candidate.getFormula());
+        try (QueryResultIterable queryResults = termStore.getDatabase().executeGroundingQuery(candidate.getFormula())) {
+            // Build a per-rule variable mapping.
+            Map<Rule, Map<Variable, Integer>> variableMaps = new HashMap<Rule, Map<Variable, Integer>>();
+            Map<Variable, Integer> baseVariableMap = queryResults.getVariableMap();
 
-        // Build a per-rule variable mapping.
-        Map<Rule, Map<Variable, Integer>> variableMaps = new HashMap<Rule, Map<Variable, Integer>>();
-        Map<Variable, Integer> baseVariableMap = queryResults.getVariableMap();
+            for (Rule rule : rules) {
+                if (rule == candidate.getBaseRule()) {
+                    variableMaps.put(rule, baseVariableMap);
+                } else {
+                    Map<Variable, Integer> variableMap = new HashMap<Variable, Integer>();
+                    Map<Variable, Variable> containmentMapping = candidate.getVariableMapping(rule);
 
-        for (Rule rule : rules) {
-            if (rule == candidate.getBaseRule()) {
-                variableMaps.put(rule, baseVariableMap);
-            } else {
-                Map<Variable, Integer> variableMap = new HashMap<Variable, Integer>();
-                Map<Variable, Variable> containmentMapping = candidate.getVariableMapping(rule);
+                    for (Map.Entry<Variable, Integer> baseVariabelMapEntry : baseVariableMap.entrySet()) {
+                        variableMap.put(containmentMapping.get(baseVariabelMapEntry.getKey()), baseVariabelMapEntry.getValue());
+                    }
 
-                for (Map.Entry<Variable, Integer> baseVariabelMapEntry : baseVariableMap.entrySet()) {
-                    variableMap.put(containmentMapping.get(baseVariabelMapEntry.getKey()), baseVariabelMapEntry.getValue());
+                    variableMaps.put(rule, variableMap);
                 }
-
-                variableMaps.put(rule, variableMap);
             }
+
+            long initialCount = termStore.size();
+            timings = Parallel.foreachBatch(queryResults, batchSize, new GroundWorker(termStore, variableMaps, rules));
+            termCount = termStore.size() - initialCount;
         }
 
-        long initialCount = groundRuleStore.size();
-        Parallel.RunTimings timings = Parallel.foreachBatch(queryResults, batchSize, new GroundWorker(atomManager, groundRuleStore, variableMaps, rules));
-        long groundCount = groundRuleStore.size() - initialCount;
-
-        atomManager.enableAccessExceptions(oldAccessExceptionState);
-
-        log.debug("Generated {} ground rules from {} query results.", groundCount, timings.iterations);
+        log.debug("Generated {} terms from {} query results.", termCount, timings.iterations);
         log.trace("   " + timings);
 
-        return groundCount;
+        return termCount;
     }
 
     private static class GroundWorker extends Parallel.Worker<List<Constant[]>> {
-        private AtomManager atomManager;
-        private GroundRuleStore groundRuleStore;
+        private TermStore termStore;
         private Map<Rule, Map<Variable, Integer>> variableMaps;
         private Set<Rule> rules;
         private List<GroundRule> groundRules;
 
-        public GroundWorker(AtomManager atomManager, GroundRuleStore groundRuleStore,
-                Map<Rule, Map<Variable, Integer>> variableMaps, Set<Rule> rules) {
-            this.atomManager = atomManager;
-            this.groundRuleStore = groundRuleStore;
+        public GroundWorker(TermStore termStore, Map<Rule, Map<Variable, Integer>> variableMaps, Set<Rule> rules) {
+            this.termStore = termStore;
             this.variableMaps = variableMaps;
             this.rules = rules;
             this.groundRules = new ArrayList<GroundRule>();
@@ -226,7 +216,7 @@ public class Grounding {
 
         @Override
         public Object clone() {
-            return new GroundWorker(atomManager, groundRuleStore, variableMaps, rules);
+            return new GroundWorker(termStore, variableMaps, rules);
         }
 
         @Override
@@ -235,18 +225,31 @@ public class Grounding {
 
             for (Rule rule : rules) {
                 for (int rowIndex = 0; rowIndex < size; rowIndex++) {
-                    rule.ground(batch.get(rowIndex), variableMaps.get(rule), atomManager, groundRules);
+                    rule.ground(batch.get(rowIndex), variableMaps.get(rule), termStore.getDatabase(), groundRules);
 
                     for (int groundRuleIndex = 0; groundRuleIndex < groundRules.size(); groundRuleIndex++) {
                         groundRule = groundRules.get(groundRuleIndex);
                         if (groundRule != null) {
-                            groundRuleStore.addGroundRule(groundRule);
+                            termStore.add(groundRule);
+
+                            if (groundRuleCallback != null) {
+                                groundRuleCallback.call(groundRule);
+                            }
                         }
                     }
 
                     groundRules.clear();
                 }
             }
+
+            ((QueryResultIterable)source).reuse(batch);
         }
+    }
+
+    /**
+     * An optional callback for each ground rule.
+     */
+    public static interface GroundRuleCallback {
+        public void call(GroundRule groundRule);
     }
 }

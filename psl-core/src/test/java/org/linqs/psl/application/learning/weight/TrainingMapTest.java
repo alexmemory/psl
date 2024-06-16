@@ -1,7 +1,7 @@
 /*
  * This file is part of the PSL software.
  * Copyright 2011-2015 University of Maryland
- * Copyright 2013-2022 The Regents of the University of California
+ * Copyright 2013-2023 The Regents of the University of California
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -19,11 +19,9 @@ package org.linqs.psl.application.learning.weight;
 
 import org.linqs.psl.database.DataStore;
 import org.linqs.psl.database.Database;
+import org.linqs.psl.database.DatabaseTestUtil;
 import org.linqs.psl.database.Partition;
-import org.linqs.psl.database.atom.PersistedAtomManager;
 import org.linqs.psl.database.loading.Inserter;
-import org.linqs.psl.database.rdbms.RDBMSDataStore;
-import org.linqs.psl.database.rdbms.driver.H2DatabaseDriver;
 import org.linqs.psl.evaluation.statistics.ContinuousEvaluator;
 import org.linqs.psl.evaluation.statistics.Evaluator;
 import org.linqs.psl.model.atom.GroundAtom;
@@ -62,8 +60,7 @@ public class TrainingMapTest extends PSLBaseTest {
      */
     @Before
     public void setUp() {
-        dataStore = new RDBMSDataStore(new H2DatabaseDriver(
-                H2DatabaseDriver.Type.Memory, this.getClass().getName(), true));
+        dataStore = DatabaseTestUtil.getDataStore();
 
         predicate = StandardPredicate.get(
                 "TrainingMapTestPredicate",
@@ -83,9 +80,9 @@ public class TrainingMapTest extends PSLBaseTest {
 
         for (int i = 0; i < 4; i++) {
             if (i < 2) {
-                targetOpenInserter.insertValue(1.0, new UniqueIntID(i));
+                targetOpenInserter.insertValueRaw(1.0, new UniqueIntID(i));
             } else {
-                targetClosedInserter.insertValue(1.0, new UniqueIntID(i));
+                targetClosedInserter.insertValueRaw(1.0, new UniqueIntID(i));
             }
         }
 
@@ -102,9 +99,9 @@ public class TrainingMapTest extends PSLBaseTest {
 
         for (int i = 0; i < 7; i++) {
             if (i == 6) {
-                truthOpenInserter.insertValue(1.0, new UniqueIntID(i));
+                truthOpenInserter.insertValueRaw(1.0, new UniqueIntID(i));
             } else if (i % 2 == 0) {
-                truthClosedInserter.insertValue(1.0, new UniqueIntID(i));
+                truthClosedInserter.insertValueRaw(1.0, new UniqueIntID(i));
             }
         }
 
@@ -112,8 +109,7 @@ public class TrainingMapTest extends PSLBaseTest {
         targetsDatabase = dataStore.getDatabase(targetOpenPartition, targetClosedPartition);
         truthDatabase = dataStore.getDatabase(truthOpenPartition, truthClosedPartition);
 
-        PersistedAtomManager atomManager = new PersistedAtomManager(targetsDatabase);
-        trainingMap = new TrainingMap(atomManager, truthDatabase);
+        trainingMap = new TrainingMap(targetsDatabase, truthDatabase);
     }
 
     @After

@@ -1,7 +1,7 @@
 /*
  * This file is part of the PSL software.
  * Copyright 2011-2015 University of Maryland
- * Copyright 2013-2022 The Regents of the University of California
+ * Copyright 2013-2023 The Regents of the University of California
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -39,6 +39,7 @@ public abstract class Predicate implements Serializable {
     private final String name;
     private final ConstantType[] types;
     private final int hashcode;
+    private final Map<String, Object> options;
 
     protected Predicate(String name, ConstantType[] types) {
         this(name, types, true);
@@ -60,6 +61,7 @@ public abstract class Predicate implements Serializable {
         this.name = name.toUpperCase();
         this.types = types;
         hashcode = this.name.hashCode();
+        options = new HashMap<String, Object>();
 
         if (predicates.containsKey(this.name)) {
             throw new RuntimeException("Predicate with name '" + name + "' already exists.");
@@ -94,7 +96,29 @@ public abstract class Predicate implements Serializable {
     }
 
     /**
-     * Close the predicate and free related resrouces.
+     * Returns the options for this predicate.
+     */
+    public Map<String, Object> getPredicateOptions() {
+        return options;
+    }
+
+    /**
+     * Sets an option for this predicate.
+     */
+    public void setPredicateOption(String name, Object option) {
+        options.put(name, option);
+    }
+
+    /**
+     * Returns the array of ArgumentType which a {@link Term} must have to be a valid
+     * argument for this Predicate.
+     */
+    public ConstantType[] getArgumentTypes() {
+        return types;
+    }
+
+    /**
+     * Close the predicate and free related resources.
      * It will be very rare to call this method.
      * Most predicates stay alive for the duration of PSL's run.
      */

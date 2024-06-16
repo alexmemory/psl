@@ -1,7 +1,7 @@
 /*
  * This file is part of the PSL software.
  * Copyright 2011-2015 University of Maryland
- * Copyright 2013-2022 The Regents of the University of California
+ * Copyright 2013-2023 The Regents of the University of California
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -18,19 +18,14 @@
 package org.linqs.psl.config;
 
 import org.linqs.psl.application.inference.mpe.ADMMInference;
-import org.linqs.psl.application.learning.weight.maxlikelihood.MaxLikelihoodMPE;
+import org.linqs.psl.application.learning.weight.gradient.GradientDescent;
 import org.linqs.psl.application.learning.weight.search.bayesian.GaussianProcessKernel;
-import org.linqs.psl.database.rdbms.QueryRewriter;
-import org.linqs.psl.grounding.MemoryGroundRuleStore;
 import org.linqs.psl.grounding.collective.CandidateGeneration;
 import org.linqs.psl.evaluation.statistics.ContinuousEvaluator;
 import org.linqs.psl.evaluation.statistics.CategoricalEvaluator;
 import org.linqs.psl.evaluation.statistics.DiscreteEvaluator;
 import org.linqs.psl.evaluation.statistics.AUCEvaluator;
 import org.linqs.psl.reasoner.InitialValue;
-import org.linqs.psl.reasoner.admm.ADMMReasoner;
-import org.linqs.psl.reasoner.admm.term.ADMMTermStore;
-import org.linqs.psl.reasoner.admm.term.ADMMTermGenerator;
 import org.linqs.psl.reasoner.sgd.SGDReasoner;
 import org.linqs.psl.util.SystemUtils;
 
@@ -85,32 +80,23 @@ public class Options {
         Option.FLAG_POSITIVE
     );
 
-    public static final Option BOOLEAN_MAXWALKSAT_MAX_FLIPS = new Option(
-        "booleanmaxwalksat.maxflips",
-        50000,
-        "The maximum number of flips to try during optimization.",
-        Option.FLAG_POSITIVE
+    public static final Option ATOM_STORE_OVERALLOCATION_FACTOR = new Option(
+        "atomstore.overallocation",
+        0.20,
+        "The degreee of overallocation for atom storage. 0.0 means no overallocation.",
+        Option.FLAG_NON_NEGATIVE
     );
 
-    public static final Option BOOLEAN_MAXWALKSAT_NOISE = new Option(
-        "booleanmaxwalksat.noise",
-        0.01,
-        "The probability of randomly perturbing an atom in a randomly chosen potential.",
-        Option.FLAG_POSITIVE
+    public static final Option ADMM_PRIMAL_DUAL_BREAK = new Option(
+        "admmreasoner.primaldualbreak",
+        true,
+        "Stop ADMM when the primal dual stopping criterion is satisfied."
     );
 
-    public static final Option BOOLEAN_MCSAT_NUM_BURNIN = new Option(
-        "booleanmcsat.numburnin",
-        500,
-        "Number of burn-in samples.",
-        Option.FLAG_POSITIVE
-    );
-
-    public static final Option BOOLEAN_MCSAT_NUM_SAMPLES = new Option(
-        "booleanmcsat.numsamples",
-        2500,
-        "Length of the Markov chain.",
-        Option.FLAG_POSITIVE
+    public static final Option ATOM_STORE_STORE_ALL_ATOMS = new Option(
+        "atomstore.storeallatoms",
+        false,
+        "Store all seen atoms in the atom store, even unmanaged atoms."
     );
 
     public static final Option EVAL_CAT_CATEGORY_INDEXES = new Option(
@@ -147,26 +133,6 @@ public class Options {
         Option.FLAG_POSITIVE
     );
 
-    public static final Option DCD_C = new Option(
-        "dcd.C",
-        10.0f,
-        null,
-        Option.FLAG_NON_NEGATIVE
-    );
-
-    public static final Option DCD_MAX_ITER = new Option(
-        "dcd.maxiterations",
-        200,
-        "The maximum number of iterations of DCD to perform in a round of inference.",
-        Option.FLAG_POSITIVE
-    );
-
-    public static final Option DCD_TRUNCATE_EVERY_STEP = new Option(
-        "dcd.truncateeverystep",
-        false,
-        null
-    );
-
     public static final Option EVAL_DISCRETE_REPRESENTATIVE = new Option(
         "discreteevaluator.representative",
         DiscreteEvaluator.RepresentativeMetric.F1.toString(),
@@ -180,17 +146,50 @@ public class Options {
         Option.FLAG_NON_NEGATIVE
     );
 
-    public static final Option WLA_EM_ITERATIONS = new Option(
-        "em.iterations",
+    public static final Option DUAL_LCQP_COMPUTE_PERIOD = new Option(
+        "duallcqp.computeperiod",
         10,
-        "The number of iterations of expectation maximization to perform.",
+        "Compute some stats about the optimization to log and use them for stopping criterion once for each period.",
+        Option.FLAG_NON_NEGATIVE
+    );
+
+    public static final Option DUAL_LCQP_FIRST_ORDER_BREAK = new Option(
+        "duallcqp.firstorderbreak",
+        false,
+        "Stop the dual LCQP reasoner when the L-Infinity norm of the dual gradient is less than duallcqp.firstorderthreshold."
+    );
+
+    public static final Option DUAL_LCQP_FIRST_ORDER_THRESHOLD = new Option(
+        "duallcqp.firstorderthreshold",
+        0.001,
+        "Dual LCQP reasoners stop when the norm of the gradient is less than this threshold.",
+        Option.FLAG_NON_NEGATIVE
+    );
+
+    public static final Option DUAL_LCQP_MAX_ITER = new Option(
+        "duallcqp.maxiterations",
+        5000,
+        "The maximum number of iterations a Dual LCQP reasoner can take to perform inference.",
         Option.FLAG_POSITIVE
     );
 
-    public static final Option WLA_EM_TOLERANCE = new Option(
-        "em.tolerance",
-        1e-3,
-        "The minimum absolute change in weights such that EM is considered converged.",
+    public static final Option DUAL_LCQP_PRIMAL_DUAL_BREAK = new Option(
+        "duallcqp.primaldualbreak",
+        true,
+        "Stop the dual LCQP reasoner when the primal dual gap is less than duallcqp.primaldualthreshold."
+    );
+
+    public static final Option DUAL_LCQP_PRIMAL_DUAL_THRESHOLD = new Option(
+        "duallcqp.primaldualthreshold",
+        0.01,
+        "Dual LCQP reasoners stop when the primal dual gap is less than this threshold.",
+        Option.FLAG_NON_NEGATIVE
+    );
+
+    public static final Option DUAL_LCQP_REGULARIZATION = new Option(
+        "duallcqp.regularizationparameter",
+        0.01,
+        "The regularization parameter for the dual lcqp problem.",
         Option.FLAG_POSITIVE
     );
 
@@ -294,6 +293,150 @@ public class Options {
         "The search space for a GaussianProcessKernel."
     );
 
+    public static final Option WLA_GRADIENT_DESCENT_CLIP_GRADIENT = new Option(
+        "gradientdescent.clipweightgradient",
+        true,
+        "Clip weight gradients with a p norm greater than the maximum gradient magnitude."
+    );
+
+    public static final Option WLA_GRADIENT_DESCENT_EXTENSION = new Option(
+    "gradientdescent.extension",
+        GradientDescent.GDExtension.MIRROR_DESCENT.toString(),
+        "The gradient descent extension to use for gradient descent weight learning."
+        + " MIRROR_DESCENT (Default): Mirror descent / normalized exponentiated gradient descent over the unit simplex."
+        + " If this option is chosen then gradientdescent.negativelogregularization must be positive."
+        + " PROJECTED_GRADIENT: Projected gradient descent over the unit simplex."
+        + " NONE: Gradient descent over non-negative orthant."
+    );
+
+    public static final Option WLA_GRADIENT_DESCENT_L2_REGULARIZATION = new Option(
+        "gradientdescent.l2regularization",
+        0.0f,
+        "The L2 regularization parameter of gradient descent weight learning.",
+        Option.FLAG_NON_NEGATIVE
+    );
+
+    public static final Option WLA_GRADIENT_DESCENT_MAX_GRADIENT = new Option(
+        "gradientdescent.maxgradientmagnitude",
+        25.0f,
+        "Gradient with a magnitude larger than this value are clipped"
+        + " to avoid overflow in gradient descent weight learning.",
+        Option.FLAG_POSITIVE
+    );
+
+    public static final Option WLA_GRADIENT_DESCENT_MAX_GRADIENT_NORM = new Option(
+        "gradientdescent.maxgradientnorm",
+        Float.POSITIVE_INFINITY,
+        "The p-norm used to measure the magnitude of gradients for clipping in gradient descent weight learning.",
+        Option.FLAG_NON_NEGATIVE
+    );
+
+    public static final Option WLA_GRADIENT_DESCENT_LOG_REGULARIZATION = new Option(
+        "gradientdescent.negativelogregularization",
+        1.0f,
+        "The negative log regularization parameter of gradient descent weight learning."
+        + " If this is not 0.0 then mirror descent gradient extension must be used.",
+        Option.FLAG_NON_NEGATIVE
+    );
+
+    public static final Option WLA_GRADIENT_DESCENT_ENTROPY_REGULARIZATION = new Option(
+        "gradientdescent.negativeentropyregularization",
+        10.0f,
+        "The negative entropy regularization parameter of gradient descent weight learning."
+        + " If this is not 0.0 then mirror descent gradient extension must be used.",
+        Option.FLAG_NON_NEGATIVE
+    );
+
+    public static final Option WLA_GRADIENT_DESCENT_MOVEMENT_BREAK = new Option(
+        "gradientdescent.movementbreak",
+        true,
+        "When the parameter movement between iterates is below the tolerance "
+        + " set by gradientdescent.movementtolerance, gradient descent weight learning is stopped."
+    );
+
+    public static final Option WLA_GRADIENT_DESCENT_MOVEMENT_TOLERANCE = new Option(
+        "gradientdescent.movementtolerance",
+        1.0e-3f,
+        "If gradientdescent.runfulliterations=false and gradientdescent.movementbreak=true,"
+        + " then when the parameter movement between iterates is below this tolerance "
+        + " gradient descent weight learning is stopped.",
+        Option.FLAG_POSITIVE
+    );
+
+    public static final Option WLA_GRADIENT_DESCENT_NORM_BREAK = new Option(
+        "gradientdescent.normbreak",
+        false,
+        "When the gradient norm is below the tolerance "
+        + " set by gradientdescent.normtolerance, gradient descent weight learning is stopped."
+    );
+
+    public static final Option WLA_GRADIENT_DESCENT_NORM_TOLERANCE = new Option(
+        "gradientdescent.normtolerance",
+        1.0e-3f,
+        "If gradientdescent.runfulliterations=false and gradientdescent.normbreak=true,"
+        + " then when the norm of the gradient is below this tolerance "
+        + " gradient descent weight learning is stopped.",
+        Option.FLAG_POSITIVE
+    );
+
+    public static final Option WLA_GRADIENT_DESCENT_NUM_STEPS = new Option(
+        "gradientdescent.numsteps",
+        500,
+        "The number of steps the gradient descent weight learner will take.",
+        Option.FLAG_POSITIVE
+    );
+
+    public static final Option WLA_GRADIENT_DESCENT_OBJECTIVE_BREAK = new Option(
+        "gradientdescent.objectivebreak",
+        false,
+        "When the objective change between iterates is below the tolerance "
+        + " set by gradientdescent.objectivetolerance, gradient descent weight learning is stopped."
+    );
+
+    public static final Option WLA_GRADIENT_DESCENT_OBJECTIVE_TOLERANCE = new Option(
+        "gradientdescent.objectivetolerance",
+        1.0e-5f,
+        "If gradientdescent.runfulliterations=false and gradientdescent.objectivebreak=true,"
+        + " then when the objective change between iterates is below this tolerance"
+        + " gradient descent weight learning is stopped.",
+        Option.FLAG_POSITIVE
+    );
+
+    public static final Option WLA_GRADIENT_DESCENT_RUN_FULL_ITERATIONS = new Option(
+        "gradientdescent.runfulliterations",
+        false,
+        "Ignore all other stopping criteria and run until the maximum number of iterations"
+        + " is reached for gradient descent weight learning."
+    );
+
+    public static final Option WLA_GRADIENT_DESCENT_SAVE_BEST_VALIDATION_WEIGHTS = new Option(
+        "gradientdescent.savevalidationweights",
+        false,
+        "Save the weights that obtained the best validation evaluation."
+        + " If true, then gradientdescent.runvalidation must be true."
+    );
+
+    public static final Option WLA_GRADIENT_DESCENT_SCALE_STEP = new Option(
+        "gradientdescent.scalestepsize",
+        true,
+        "If true, then scale the step size by the iteration, i.e., at iteration k,"
+        + " the step size is alpha / k, where alpha is the base step size of the gradient descent weight learner."
+    );
+
+    public static final Option WLA_GRADIENT_DESCENT_STEP_SIZE = new Option(
+        "gradientdescent.stepsize",
+        0.1f,
+        "The gradient descent weight learner step size.",
+        Option.FLAG_POSITIVE
+    );
+
+    public static final Option WLA_GRADIENT_DESCENT_STOPPING_GRADIENT_NORM = new Option(
+        "gradientdescent.stoppinggradientnorm",
+        Float.POSITIVE_INFINITY,
+        "The p-norm used to measure the magnitude of gradients for stopping criterion if gradientdescent.extension=NONE.",
+        Option.FLAG_NON_NEGATIVE
+    );
+
     public static final Option WLA_GS_POSSIBLE_WEIGHTS = new Option(
         "gridsearch.weights",
         "0.001:0.01:0.1:1:10",
@@ -344,12 +487,6 @@ public class Options {
         Option.FLAG_POSITIVE
     );
 
-    public static final Option WLA_HEM_ADAGRAD = new Option(
-        "hardem.adagrad",
-        false,
-        "Whether to use AdaGrad subgradient scaling, the adaptive subgradient algorithm of Duchi et al., 2010."
-    );
-
     public static final Option WLA_HB_BRACKET_SIZE = new Option(
         "hyperband.basebracketsize",
         10,
@@ -371,49 +508,6 @@ public class Options {
         Option.FLAG_POSITIVE
     );
 
-    public static final Option HYPERPLANE_TG_ADD_DETER = new Option(
-        "hyperplanetermgenerator.deter",
-        false,
-        "If true, then add a deter term to functional constraints."
-    );
-
-    public static final Option HYPERPLANE_TG_DETER_COLLECTIVE = new Option(
-        "hyperplanetermgenerator.deter.collective",
-        true,
-        "If true, then use collective deter terms. Else, use independent deter terms."
-    );
-
-    public static final Option HYPERPLANE_TG_DETER_CONSTANT = new Option(
-        "hyperplanetermgenerator.deter.constant",
-        0.0f,
-        "When used with independent deter terms, this is the point to deter away from."
-        + " When zero, this value will be (1.0 / |values|)."
-    );
-
-    public static final Option HYPERPLANE_TG_DETER_EPSILON = new Option(
-        "hyperplanetermgenerator.deter.epsilon",
-        0.05f,
-        "If the average distance of deter variables is less than this, then the deter rule will activate."
-    );
-
-    public static final Option HYPERPLANE_TG_DETER_WEIGHT = new Option(
-        "hyperplanetermgenerator.deter.weight",
-        1.0f,
-        "The weight for deter rules."
-    );
-
-    public static final Option HYPERPLANE_TG_INVERT_NEGATIVE_WEIGHTS = new Option(
-        "hyperplanetermgenerator.invertnegativeweights",
-        false,
-        "If true, then invert negative weight rules into their positive weight counterparts."
-    );
-
-    public static final Option INFERENCE_GRS = new Option(
-        "inference.groundrulestore",
-        MemoryGroundRuleStore.class.getName(),
-        "The ground rule store to use for inference."
-    );
-
     public static final Option INFERENCE_INITIAL_VARIABLE_VALUE = new Option(
         "inference.initialvalue",
         InitialValue.RANDOM.toString(),
@@ -426,12 +520,6 @@ public class Options {
         "Normalize weights to be in [0, 1]. Normalization will be done by dividing all weights by the largest weight."
     );
 
-    public static final Option INFERENCE_REASONER = new Option(
-        "inference.reasoner",
-        ADMMReasoner.class.getName(),
-        "The reasoner to use for inference."
-    );
-
     public static final Option INFERENCE_RELAX = new Option(
         "inference.relax",
         false,
@@ -440,14 +528,14 @@ public class Options {
 
     public static final Option INFERENCE_RELAX_MULTIPLIER = new Option(
         "inference.relax.multiplier",
-        100,
+        100.0f,
         "When relaxing a hard constraint into a soft one, the weight of the rule is set to this value times the largest weight seen.",
         Option.FLAG_POSITIVE
     );
 
     public static final Option INFERENCE_RELAX_SQUARED = new Option(
         "inference.relax.squared",
-        false,
+        true,
         "When relaxing a hard constraint into a soft one, this determines if the resulting weighted rule is squared."
     );
 
@@ -456,52 +544,6 @@ public class Options {
         false,
         "Skip the reasoning portion of inference."
         + " Variables will be set to their specified initial values, but no reasoning will take place."
-    );
-
-    public static final Option INFERENCE_TG = new Option(
-        "inference.termgenerator",
-        ADMMTermGenerator.class.getName(),
-        "The term generator to use for inference."
-    );
-
-    public static final Option INFERENCE_TS = new Option(
-        "inference.termstore",
-        ADMMTermStore.class.getName(),
-        "The term store to use for inference."
-    );
-
-    public static final Option WLA_IWHB_WLA = new Option(
-        "initialweighthyperband.internalwla",
-        MaxLikelihoodMPE.class.getName(),
-        "The internal weight learning application (WLA) to use (should be a VotedPerceptron)."
-    );
-
-    public static final Option LAM_ACTIVATION_THRESHOLD = new Option(
-        "lazyatommanager.activation",
-        0.01,
-        "The minimum value an atom must take for it to be activated.",
-        Option.FLAG_POSITIVE | Option.FLAG_LTE_ONE
-    );
-
-    public static final Option WLA_LMLE_MAX_ROUNDS = new Option(
-        "lazymaxlikelihoodmpe.maxgrowrounds",
-        100,
-        "The maximum number of rounds of lazy growing.",
-        Option.FLAG_POSITIVE
-    );
-
-    public static final Option LAZY_INFERENCE_MAX_ROUNDS = new Option(
-        "lazympeinference.maxrounds",
-        100,
-        "The maximum number of rounds of lazy inference.",
-        Option.FLAG_POSITIVE
-    );
-
-    public static final Option WLA_MPPLE_NUM_SAMPLES = new Option(
-        "maxpiecewisepseudolikelihood.numsamples",
-        100,
-        "The number of samples MPPLE will use to approximate expectations.",
-        Option.FLAG_POSITIVE
     );
 
     public static final Option MEMORY_TS_INITIAL_SIZE = new Option(
@@ -524,63 +566,61 @@ public class Options {
         "Shuffle the terms before each return of iterator()."
     );
 
+    public static final Option MINIMIZER_FINAL_PARAMETER_MOVEMENT_CONVERGENCE_TOLERANCE = new Option(
+        "minimizer.finalparametermovementconvergencetolerance",
+        0.01f,
+        "Minimizer based learning is stopped when the amount of parameter movement drops below this tolerance.",
+        Option.FLAG_NON_NEGATIVE
+    );
+
+    public static final Option MINIMIZER_INITIAL_LINEAR_PENALTY = new Option(
+        "minimizer.initiallinearpenalty",
+        0.1f,
+        "The initial value for the linear penalty parameter in the augmented Lagrangian minimizer-based learning framework.",
+        Option.FLAG_NON_NEGATIVE
+    );
+
+    public static final Option MINIMIZER_INITIAL_SQUARED_PENALTY = new Option(
+        "minimizer.initialsquaredpenalty",
+        10.0f,
+        "The initial value for the squared penalty parameter in the augmented Lagrangian minimizer-based learning framework.",
+        Option.FLAG_NON_NEGATIVE
+    );
+
+    public static final Option MINIMIZER_NUM_INTERNAL_ITERATIONS = new Option(
+        "minimizer.numinternaliterations",
+        100,
+        "The number of internal iterations to perform before updating the augmented Lagrangian parameters.",
+        Option.FLAG_NON_NEGATIVE
+    );
+
+    public static final Option MINIMIZER_OBJECTIVE_DIFFERENCE_TOLERANCE = new Option(
+        "minimizer.objectivedifferencetolerance",
+        0.01f,
+        "The tolerance of the violation of value of the lower level objective function difference constraint"
+        + " in the augmented Lagrangian minimizer-based learning framework.",
+        Option.FLAG_NON_NEGATIVE
+    );
+
+    public static final Option MINIMIZER_PROX_RULE_WEIGHT = new Option(
+        "minimizer.proxruleweight",
+        0.01f,
+        "The weight of the proximity rules added to the objective function for augmented inference subproblem.",
+        Option.FLAG_NON_NEGATIVE
+    );
+
+    public static final Option MINIMIZER_SQUARED_PENALTY_INCREASE_RATE = new Option(
+        "minimizer.squaredpenaltyincreaserate",
+        2.0f,
+        "The rate to increase the squared penalty coefficient.",
+        Option.FLAG_NON_NEGATIVE
+    );
+
     public static final Option MODEL_PREDICATE_BATCH_SIZE = new Option(
         "modelpredicate.batchsize",
         32,
         "The maximum size of batches for model updates.",
         Option.FLAG_POSITIVE
-    );
-
-    public static final Option MODEL_PREDICATE_ENTITY_ARGS = new Option(
-        "modelpredicate.entityargs",
-        "0",
-        "A comma separated list of indexes to the predicate arguments that identity the data point (as opposed to the target label)."
-    );
-
-    public static final Option MODEL_PREDICATE_ITERATIONS = new Option(
-        "modelpredicate.iterations",
-        100,
-        "The number of iterations for the internal model to go through for updates.",
-        Option.FLAG_POSITIVE
-    );
-
-    public static final Option MODEL_PREDICATE_LABEL_ARGS = new Option(
-        "modelpredicate.labelargs",
-        "1",
-        "A comma separated list of indexes to the predicate arguments that identity the target label (as opposed to the identity of the data point)."
-    );
-
-    public static final Option MODEL_PREDICATE_INITIAL_BATCH_SIZE = new Option(
-        "modelpredicate.initialbatchsize",
-        32,
-        "The maximum size of batches for the initial fitting of model predicates.",
-        Option.FLAG_POSITIVE
-    );
-
-    public static final Option MODEL_PREDICATE_INITIAL_ITERATIONS = new Option(
-        "modelpredicate.initialiterations",
-        100,
-        "The number of iterations for the internal model to go through for initial fitting.",
-        Option.FLAG_POSITIVE
-    );
-
-    public static final Option ONLINE_HOST = new Option(
-        "inference.onlinehostname",
-        "127.0.0.1",
-        "The hostname for the online server."
-    );
-
-    public static final Option ONLINE_PORT_NUMBER = new Option(
-        "inference.onlineportnumber",
-        56734,
-        "The port number for the online server."
-    );
-
-    public static final Option ONLINE_READ_PARTITION = new Option(
-        "onlineatommanager.read",
-        -1,
-        "The partition to add new observations to."
-        + " If negative, the first read partition in the database will be used."
     );
 
     public static final Option WLA_PDL_ADMM_STEPS = new Option(
@@ -604,21 +644,13 @@ public class Options {
         Option.FLAG_POSITIVE
     );
 
-    public static final Option PARTIAL_GROUNDING_POWERSET = new Option(
-        "partialgrounding.powerset",
-        false,
-        "Whether or not to iterate over the powerset of partial targets during a partial grounding."
-        + " If true the partial grounding will result in no regret in the inference. "
-        + " If false an approximation will be made such that only one atom in a ground rule can come from a special partition."
-    );
-
     public static final Option PAM_THROW_ACCESS_EXCEPTION = new Option(
-        "persistedatommanager.throwaccessexception",
+        "pam.throw",
         true,
-        "Whether or not to throw an exception on illegal access."
+        "Whether or not to throw an exception on illegal access to target atoms."
         + " Note that in most cases, this indicates incorrectly formed data."
         + " This should only be set to false when the user understands why these"
-        + " exceptions are thrown in the first place and the grounding implications of"
+        + " exceptions are thrown and the grounding implications of"
         + " not having the atom initially in the database."
     );
 
@@ -640,41 +672,35 @@ public class Options {
         "The Postgres port to connect to (when not explicitly specified)."
     );
 
-    public static final Option POSTGRES_STATS_PERCENTAGE = new Option(
-        "postgres.statspercentage",
-        0.25,
-        "The percentage of possible effort to have Postgres spend on statistics collection.",
-        Option.FLAG_NON_NEGATIVE
-    );
-
     public static final Option POSTGRES_USER = new Option(
         "postgres.user",
         "",
         "The Postgres user to connect with (when not explicitly specified)."
     );
 
+    public static final Option PREDICATE_DEEP_PYTHON_PORT = new Option(
+        "predicate.deep.python.port",
+        12345,
+        "The port to connect to the Python model wrapper server.",
+        Option.FLAG_POSITIVE
+    );
+
+    public static final Option PREDICATE_DEEP_PYTHON_WRAPPER_MODULE = new Option(
+        "predicate.deep.python.module",
+        "pslpython.deeppsl.server",
+        "The Python module to invoke for the deep wrapper."
+    );
+
+    public static final Option PREDICATE_DEEP_SHARED_MEMORY_PATH = new Option(
+        "predicate.deep.sharedmemory.path",
+        SystemUtils.getTempDir("deep_shared_memory.bin"),
+        "Where the place shared memory."
+    );
+
     public static final Option PROJECT_VERSION = new Option(
         "project.version",
         "UNKNOWN",
         "The current version of PSL."
-    );
-
-    public static final Option QR_ALLOWED_STEP_INCREASE = new Option(
-        "queryrewriter.allowedsteocostincrease",
-        1.5,
-        "How much we allow the query cost (number of rows) to increase at each step."
-    );
-
-    public static final Option QR_ALLOWED_TOTAL_INCREASE = new Option(
-        "queryrewriter.allowedtotalcostincrease",
-        2.0,
-        "How much we allow the query cost (number of rows) to for new plans."
-    );
-
-    public static final Option QR_COST_ESTIMATOR = new Option(
-        "queryrewriter.costestimator",
-        QueryRewriter.CostEstimator.HISTOGRAM.toString(),
-        "The method to use when estimating join size."
     );
 
     public static final Option RANDOM_SEED = new Option(
@@ -704,35 +730,11 @@ public class Options {
         Option.FLAG_NON_NEGATIVE
     );
 
-    public static final Option WLA_RS_SCALING_FACTORS = new Option(
-        "ranksearch.scalingfactors",
-        "1:2:10:100",
-        "A comma-separated list of scaling factors."
-    );
-
     public static final Option RDBMS_FETCH_SIZE = new Option(
         "rdbmsdatabase.fetchsize",
         500,
         "The number of records to fetch from the database at a time.",
         Option.FLAG_NON_NEGATIVE
-    );
-
-    public static final Option REASONER_NONCONVEX = new Option(
-        "reasoner.nonconvex",
-        false,
-        "Allow non-convex optimization."
-    );
-
-    public static final Option REASONER_NONCONVEX_PERIOD = new Option(
-        "reasoner.nonconvex.period",
-        10,
-        "Do non-convex optimization once for each period."
-    );
-
-    public static final Option REASONER_NONCONVEX_ROUNDS = new Option(
-        "reasoner.nonconvex.rounds",
-        1,
-        "When initiated, do this many rounds of non-convex optimization."
     );
 
     public static final Option REASONER_EVALUATE = new Option(
@@ -743,7 +745,7 @@ public class Options {
 
     public static final Option REASONER_OBJECTIVE_BREAK = new Option(
         "reasoner.objectivebreak",
-        true,
+        false,
         "Stop if the objective has not changed since the last iteration (or logging period)."
     );
 
@@ -753,10 +755,32 @@ public class Options {
         "Ignore all other stopping criteria and run until the maximum number of iterations."
     );
 
-    public static final Option REASONER_TOLERANCE = new Option(
-        "reasoner.tolerance",
+    public static final Option REASONER_OBJECTIVE_TOLERANCE = new Option(
+        "reasoner.objectivetolerance",
         1e-5f,
         "How close two objective values need to be to be considered the same.",
+        Option.FLAG_NON_NEGATIVE
+    );
+
+    public static final Option REASONER_VARIABLE_MOVEMENT_BREAK = new Option(
+        "reasoner.variablemovementbreak",
+        false,
+        "Stop reasoner if two consecutive iterates are within reasoner.variablemovementtolerance distance."
+    );
+
+    public static final Option REASONER_VARIABLE_MOVEMENT_NORM = new Option(
+        "reasoner.variablemovementnorm",
+        Float.POSITIVE_INFINITY,
+        "The p-norm used to measure the variable movement optimality condition."
+        + " Default is the infinity-norm which is the absolute value of the maximum component of the movement vector."
+        + " Note that the infinity-norm can be explicitly set with the string literal: 'Infinity'.",
+        Option.FLAG_NON_NEGATIVE
+    );
+
+    public static final Option REASONER_VARIABLE_MOVEMENT_TOLERANCE = new Option(
+        "reasoner.variablemovementtolerance",
+        1e-4f,
+        "How close two iterates need to be to be considered the same.",
         Option.FLAG_NON_NEGATIVE
     );
 
@@ -816,6 +840,12 @@ public class Options {
         + " ADAM: Update the learning rate using the Adaptive Moment Estimation (Adam) algorithm."
     );
 
+    public static final Option SGD_FIRST_ORDER_BREAK = new Option(
+        "sgd.firstorderbreak",
+        true,
+        "Stop stochastic gradient descent when the norm of the gradient is less than sgd.firstorderthreshold."
+    );
+
     public static final Option SGD_FIRST_ORDER_NORM = new Option(
         "sgd.firstordernorm",
         Float.POSITIVE_INFINITY,
@@ -863,19 +893,6 @@ public class Options {
         Option.FLAG_POSITIVE
     );
 
-    public static final Option SGD_MOVEMENT = new Option(
-        "sgd.movement",
-        true,
-        "Keep track of the mean movement of the random variables. Do not stop optimization if that value is greater than some threshold."
-    );
-
-    public static final Option SGD_MOVEMENT_THRESHOLD = new Option(
-        "sgd.movement.threshold",
-        0.05f,
-        "If movement watching is enabled, don't stop optimization if the mean random variable movement is greater than this threshold.",
-        Option.FLAG_NON_NEGATIVE
-    );
-
     public static final Option STREAMING_TS_PAGE_LOCATION = new Option(
         "streamingtermstore.pagelocation",
         SystemUtils.getTempDir("streaimg_term_cache_pages"),
@@ -905,85 +922,6 @@ public class Options {
         "streamingtermstore.warnunsupportedrules",
         true,
         "Warn on rules the streaming term store can't handle."
-    );
-
-    public static final Option WLA_VP_AVERAGE_STEPS = new Option(
-        "votedperceptron.averagesteps",
-        false,
-        "Whether to average all visited weights together for final output."
-    );
-
-    public static final Option WLA_VP_CLIP_NEGATIVE_WEIGHTS = new Option(
-        "votedperceptron.clipnegativeweights",
-        true,
-        "If true, then weights will not be allowed to go negative."
-    );
-
-    public static final Option WLA_VP_CUT_OBJECTIVE = new Option(
-        "votedperceptron.cutobjective",
-        false,
-        "If true, then cut the step size in half whenever the objective increases."
-    );
-
-    public static final Option WLA_VP_INERTIA = new Option(
-        "votedperceptron.inertia",
-        0.0,
-        "The inertia that is used for adaptive step sizes.",
-        Option.FLAG_NON_NEGATIVE | Option.FLAG_LT_ONE
-    );
-
-    public static final Option WLA_VP_L1 = new Option(
-        "votedperceptron.l1regularization",
-        0.0,
-        "The L1 regularizer.",
-        Option.FLAG_NON_NEGATIVE
-    );
-
-    public static final Option WLA_VP_L2 = new Option(
-        "votedperceptron.l2regularization",
-        0.0,
-        "The L2 regularizer.",
-        Option.FLAG_NON_NEGATIVE
-    );
-
-    public static final Option WLA_VP_NUM_STEPS = new Option(
-        "votedperceptron.numsteps",
-        25,
-        "The number of steps VotedPerceptron will take.",
-        Option.FLAG_POSITIVE
-    );
-
-    public static final Option WLA_VP_SCALE_GRADIENT = new Option(
-        "votedperceptron.scalegradient",
-        true,
-        "Whether to scale the gradient by the number of groundings."
-    );
-
-    public static final Option WLA_VP_STEP = new Option(
-        "votedperceptron.stepsize",
-        0.2,
-        "The gradient step size.",
-        Option.FLAG_POSITIVE
-    );
-
-    public static final Option WLA_VP_SCALE_STEP = new Option(
-        "votedperceptron.scalestepsize",
-        true,
-        "If true, then scale the step size down by the iteration."
-    );
-
-    public static final Option WLA_VP_ZERO_INITIAL_WEIGHTS = new Option(
-        "votedperceptron.zeroinitialweights",
-        false,
-        "If true, then start all weights at zero."
-    );
-
-    public static final Option WLA_EVAL = new Option(
-        "weightlearning.evaluator",
-        ContinuousEvaluator.class.getName(),
-        "The evaluator to use during weight learning."
-        + " Not all weight learning methods will use the evaluator for decision making,"
-        + " but even those will typically output an evaluator score each iteration."
     );
 
     public static final Option WLA_RANDOM_WEIGHTS = new Option(

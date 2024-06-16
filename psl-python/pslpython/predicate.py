@@ -1,7 +1,7 @@
 '''
 This file is part of the PSL software.
 Copyright 2011-2015 University of Maryland
-Copyright 2013-2022 The Regents of the University of California
+Copyright 2013-2023 The Regents of the University of California
 
 Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
@@ -47,7 +47,7 @@ class Predicate(object):
     DEFAULT_ARG_TYPE = ArgType.UNIQUE_STRING_ID
     DEFAULT_TRUTH_VALUE = 1.0
 
-    def __init__(self, raw_name: str, closed: bool, size: int = None, arg_types = None):
+    def __init__(self, raw_name: str, size: int = None, arg_types = None, evaluations = []):
         """
         Construct a new predicate.
 
@@ -65,6 +65,7 @@ class Predicate(object):
             name: The name of the predicate.
             size: The number of arguments to this predicate.
             arg_types: The types of arguments to this predicate.
+            evaluations: dicts that are passed blindly to the config.
         """
 
         self._types = []
@@ -72,7 +73,8 @@ class Predicate(object):
         # Note that the dataframes have a spot for the truth value.
         self._data = {}
         self._name = Predicate.normalize_name(raw_name)
-        self._closed = closed
+
+        self._evaluations = evaluations
 
         if (size is None and (arg_types is None or len(arg_types) == 0)):
             raise PredicateError("Predicates must have a size and/or type infornation, neither supplied.")
@@ -140,6 +142,15 @@ class Predicate(object):
         data = pandas.DataFrame([args + [truth_value]], columns = list(range(size + 1)))
         return self.add_data(partition, data)
 
+    def add_observed_data(self, data):
+        return self.add_data(Partition.OBSERVATIONS, data)
+
+    def add_target_data(self, data):
+        return self.add_data(Partition.TARGETS, data)
+
+    def add_truth_data(self, data):
+        return self.add_data(Partition.TRUTH, data)
+
     def add_data(self, partition: Partition, data):
         """
         Add several records to the predciate.
@@ -186,9 +197,6 @@ class Predicate(object):
 
         return self
 
-    def closed(self):
-        return self._closed
-
     def name(self):
         return self._name
 
@@ -200,6 +208,26 @@ class Predicate(object):
 
     def data(self):
         return self._data
+
+    def to_dict(self):
+        """
+        Return a dict representation (in PSL Runtime Config form) of this predicate.
+        """
+
+        config = {
+            "name": self._name,
+            "arity": len(self._types),
+            "types": list([type.value for type in self._types]),
+            "observations": self._serialize_data(Partition.OBSERVATIONS),
+            "targets": self._serialize_data(Partition.TARGETS),
+            "truth": self._serialize_data(Partition.TRUTH),
+            "evaluations": self._evaluations,
+        }
+
+        return config
+
+    def _serialize_data(self, partition):
+        return self._data[partition].to_numpy().tolist()
 
     @staticmethod
     def normalize_name(name):

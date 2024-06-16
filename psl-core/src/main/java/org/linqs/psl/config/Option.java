@@ -1,7 +1,7 @@
 /*
  * This file is part of the PSL software.
  * Copyright 2011-2015 University of Maryland
- * Copyright 2013-2022 The Regents of the University of California
+ * Copyright 2013-2023 The Regents of the University of California
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -117,16 +117,16 @@ public class Option implements Comparable<Option> {
      * No type checking is done on the passed-in value.
      */
     public void set(Object value) {
-        Config.setProperty(name, value);
+        Config.setProperty(name, value, true);
     }
 
     /**
      * Clear the value (in the Config) for this Option.
-     * This will remove any previously set valuem
+     * This will remove any previously set value,
      * but not remove any defaults.
      */
     public void clear() {
-        Config.clearProperty(name);
+        Config.clearProperty(name, true);
     }
 
     /**
@@ -135,7 +135,7 @@ public class Option implements Comparable<Option> {
      * This is the only provided get method that does not use a default.
      */
     public Object get() {
-        return Config.getProperty(name);
+        return Config.getProperty(name, null, true);
     }
 
     public boolean isSet() {
@@ -143,11 +143,11 @@ public class Option implements Comparable<Option> {
     }
 
     public Object getUnlogged() {
-        return Config.getUnloggedProperty(name);
+        return Config.getProperty(name, null, false);
     }
 
     public boolean getBoolean() {
-        return Config.getBoolean(name, ((Boolean)defaultValue).booleanValue());
+        return Config.getBoolean(name, (Boolean)defaultValue).booleanValue();
     }
 
     public String getString() {
@@ -159,25 +159,25 @@ public class Option implements Comparable<Option> {
     }
 
     public int getInt() {
-        int value = Config.getInt(name, ((Number)defaultValue).intValue());
+        int value = Config.getInteger(name, (Number)defaultValue).intValue();
         checkNumericFlags(value, "" + value);
         return value;
     }
 
     public long getLong() {
-        long value = Config.getLong(name, ((Number)defaultValue).longValue());
+        long value = Config.getLong(name, (Number)defaultValue).longValue();
         checkNumericFlags(value, "" + value);
         return value;
     }
 
     public float getFloat() {
-        float value = Config.getFloat(name, ((Number)defaultValue).floatValue());
+        float value = Config.getFloat(name, (Number)defaultValue).floatValue();
         checkNumericFlags(value, "" + value);
         return value;
     }
 
     public double getDouble() {
-        double value = Config.getDouble(name, ((Number)defaultValue).doubleValue());
+        double value = Config.getDouble(name, (Number)defaultValue).doubleValue();
         checkNumericFlags(value, "" + value);
         return value;
     }

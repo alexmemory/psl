@@ -1,7 +1,7 @@
 /*
  * This file is part of the PSL software.
  * Copyright 2011-2015 University of Maryland
- * Copyright 2013-2022 The Regents of the University of California
+ * Copyright 2013-2023 The Regents of the University of California
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -18,14 +18,10 @@
 package org.linqs.psl.application.inference.mpe;
 
 import org.linqs.psl.database.Database;
-import org.linqs.psl.grounding.GroundRuleStore;
-import org.linqs.psl.grounding.MemoryGroundRuleStore;
 import org.linqs.psl.model.rule.Rule;
 import org.linqs.psl.reasoner.Reasoner;
 import org.linqs.psl.reasoner.sgd.SGDReasoner;
-import org.linqs.psl.reasoner.sgd.term.SGDMemoryTermStore;
-import org.linqs.psl.reasoner.sgd.term.SGDTermGenerator;
-import org.linqs.psl.reasoner.term.TermGenerator;
+import org.linqs.psl.reasoner.sgd.term.SGDTermStore;
 import org.linqs.psl.reasoner.term.TermStore;
 
 import java.util.List;
@@ -39,22 +35,12 @@ public class SGDInference extends MPEInference {
     }
 
     @Override
-    protected GroundRuleStore createGroundRuleStore() {
-        return new MemoryGroundRuleStore();
-    }
-
-    @Override
     protected Reasoner createReasoner() {
         return new SGDReasoner();
     }
 
     @Override
-    protected TermGenerator createTermGenerator() {
-        return new SGDTermGenerator();
-    }
-
-    @Override
     protected TermStore createTermStore() {
-        return new SGDMemoryTermStore();
+        return new SGDTermStore(database);
     }
 }

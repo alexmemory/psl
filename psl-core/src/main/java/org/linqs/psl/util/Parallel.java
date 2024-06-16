@@ -1,7 +1,7 @@
 /*
  * This file is part of the PSL software.
  * Copyright 2011-2015 University of Maryland
- * Copyright 2013-2022 The Regents of the University of California
+ * Copyright 2013-2023 The Regents of the University of California
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -25,11 +25,11 @@ import java.util.HashMap;
 import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.ArrayBlockingQueue;
 import java.util.concurrent.BlockingQueue;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
-import java.util.concurrent.LinkedBlockingQueue;
 import java.util.concurrent.ThreadFactory;
 import java.util.concurrent.TimeUnit;
 
@@ -105,7 +105,7 @@ public final class Parallel {
      * The long value provided to the worker will be the number also passed as a Long.
      */
     public synchronized static RunTimings count(long start, long end, long increment, Worker<Long> baseWorker) {
-        initWorkers(baseWorker);
+        initWorkers(baseWorker, null);
         RunTimings timings = countInternal(start, end, increment);
         cleanupWorkers();
 
@@ -179,7 +179,7 @@ public final class Parallel {
      * The long value provided to the worker will be the index of the piece of work.
      */
     public synchronized static <T> RunTimings foreach(Iterable<T> work, Worker<T> baseWorker) {
-        initWorkers(baseWorker);
+        initWorkers(baseWorker, work);
         RunTimings timings = foreachInternal(work);
         cleanupWorkers();
 
@@ -251,7 +251,7 @@ public final class Parallel {
      * The long value passed to the worker will be the number of items in the batch.
      */
     public static <T> RunTimings foreachBatch(Iterator<T> work, int batchSize, Worker<List<T>> baseWorker) {
-        initWorkers(baseWorker);
+        initWorkers(baseWorker, work);
         RunTimings timings = foreachBatchInternal(work, batchSize);
         cleanupWorkers();
 
@@ -344,7 +344,7 @@ public final class Parallel {
 
         // We can use an unbounded queue (no initial size given) since the parent
         // thread is disciplined when giving out work.
-        workerQueue = new LinkedBlockingQueue<Worker<?>>();
+        workerQueue = new ArrayBlockingQueue<Worker<?>>(numThreads);
         allWorkers = new ArrayList<Worker<?>>(numThreads);
 
         // We will make all the threads daemons, so the JVM shutdown will not be held up.
@@ -364,7 +364,7 @@ public final class Parallel {
     /**
      * Always the first thing called when setting up to run a task in parallel.
      */
-    private static <T> void initWorkers(Worker<T> baseWorker) {
+    private static <T> void initWorkers(Worker<T> baseWorker, Object source) {
         initPool();
 
         workerQueue.clear();
@@ -380,7 +380,7 @@ public final class Parallel {
                 worker = baseWorker.copy();
             }
 
-            worker.init(i);
+            worker.init(i, source);
 
             allWorkers.add(worker);
             workerQueue.add(worker);
@@ -396,7 +396,7 @@ public final class Parallel {
         workerQueue.clear();
     }
 
-    private static void shutdown() {
+    private static synchronized void shutdown() {
         if (!initialized) {
             return;
         }
@@ -436,6 +436,7 @@ public final class Parallel {
      */
     public static abstract class Worker<T> implements Runnable, Cloneable {
         protected int id;
+        protected Object source;
 
         private long value;
         private long waitTimeMS;
@@ -445,6 +446,7 @@ public final class Parallel {
 
         public Worker() {
             this.id = -1;
+            this.source = null;
             this.value = -1;
             this.waitTimeMS = 0;
             this.workTimeMS = 0;
@@ -456,7 +458,10 @@ public final class Parallel {
          * Cleanup anything.
          * Called after all work has been complete and it is time to clean up.
          */
-        public void close() {}
+        public void close() {
+            id = -1;
+            source = null;
+        }
 
         /**
          * Make a deep copy of this worker.
@@ -476,8 +481,9 @@ public final class Parallel {
          * The id will be unique to this worker for this batch of work.
          * The id is guarenteed to be in [0, numThreads).
          */
-        public void init(int id) {
+        public void init(int id, Object source) {
             this.id = id;
+            this.source = source;
         }
 
         public int getID() {

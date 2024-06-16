@@ -1,7 +1,7 @@
 /*
  * This file is part of the PSL software.
  * Copyright 2011-2015 University of Maryland
- * Copyright 2013-2022 The Regents of the University of California
+ * Copyright 2013-2023 The Regents of the University of California
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -19,12 +19,7 @@ package org.linqs.psl.model.rule.arithmetic;
 
 import org.linqs.psl.database.DataStore;
 import org.linqs.psl.database.Database;
-import org.linqs.psl.database.atom.SimpleAtomManager;
-import org.linqs.psl.database.rdbms.RDBMSDataStore;
-import org.linqs.psl.database.rdbms.driver.H2DatabaseDriver;
-import org.linqs.psl.database.rdbms.driver.H2DatabaseDriver.Type;
-import org.linqs.psl.grounding.GroundRuleStore;
-import org.linqs.psl.grounding.MemoryGroundRuleStore;
+import org.linqs.psl.database.DatabaseTestUtil;
 import org.linqs.psl.model.atom.QueryAtom;
 import org.linqs.psl.model.formula.Disjunction;
 import org.linqs.psl.model.formula.Formula;
@@ -46,6 +41,8 @@ import org.linqs.psl.model.term.ConstantType;
 import org.linqs.psl.model.term.UniqueStringID;
 import org.linqs.psl.model.term.Variable;
 import org.linqs.psl.reasoner.function.FunctionComparator;
+import org.linqs.psl.reasoner.term.DummyTermStore;
+import org.linqs.psl.reasoner.term.TermStore;
 import org.linqs.psl.test.PSLBaseTest;
 
 import org.junit.After;
@@ -69,7 +66,7 @@ public class AbstractArithmeticRuleTest extends PSLBaseTest {
 
     @Before
     public void setup() {
-        dataStore = new RDBMSDataStore(new H2DatabaseDriver(Type.Memory, this.getClass().getName(), true));
+        dataStore = DatabaseTestUtil.getDataStore();
 
         singleClosed = StandardPredicate.get("SingleClosed", ConstantType.UniqueStringID);
         dataStore.registerPredicate(singleClosed);
@@ -427,11 +424,10 @@ public class AbstractArithmeticRuleTest extends PSLBaseTest {
                 coefficients, atoms, FunctionComparator.EQ, new ConstantNumber(1));
         AbstractArithmeticRule rule = new UnweightedArithmeticRule(expression, filters);
 
-        SimpleAtomManager atomManager = new SimpleAtomManager(database);
-        GroundRuleStore groundRuleStore = new MemoryGroundRuleStore();
+        TermStore store = new DummyTermStore(database);
 
         try {
-            rule.groundAll(atomManager, groundRuleStore);
+            rule.groundAll(store, null);
             fail("IllegalArgumentException not thrown when trying to ground an open predicate in the filter.");
         } catch (IllegalArgumentException ex) {
             // Exception is expected.

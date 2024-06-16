@@ -1,7 +1,7 @@
 /*
  * This file is part of the PSL software.
  * Copyright 2011-2015 University of Maryland
- * Copyright 2013-2022 The Regents of the University of California
+ * Copyright 2013-2023 The Regents of the University of California
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -28,6 +28,7 @@ public abstract class AbstractRule implements Rule {
     private static final Map<Integer, Rule> rules = new HashMap<Integer, Rule>();
 
     protected String name;
+    protected Boolean active;
     protected int hashcode;
 
     public static Rule getRule(int hashcode) {
@@ -42,13 +43,23 @@ public abstract class AbstractRule implements Rule {
     protected AbstractRule() {
         this.name = null;
         this.hashcode = 0;
+        this.active = true;
     }
 
     protected AbstractRule(String name, int hashcode) {
         this.name = name;
         this.hashcode = hashcode;
+        this.active = true;
 
         ensureRegistration();
+    }
+
+    public boolean isActive() {
+        return active;
+    }
+
+    public void setActive(boolean active) {
+        this.active = active;
     }
 
     public String getName() {

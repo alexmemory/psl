@@ -1,7 +1,7 @@
 /*
  * This file is part of the PSL software.
  * Copyright 2011-2015 University of Maryland
- * Copyright 2013-2022 The Regents of the University of California
+ * Copyright 2013-2023 The Regents of the University of California
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -17,255 +17,289 @@
  */
 package org.linqs.psl.runtime;
 
+import org.linqs.psl.config.Config;
+import org.linqs.psl.config.Options;
 import org.linqs.psl.config.RuntimeOptions;
+import org.linqs.psl.database.AtomStore;
 import org.linqs.psl.database.DataStore;
 import org.linqs.psl.database.Database;
 import org.linqs.psl.database.Partition;
-import org.linqs.psl.database.atom.AtomManager;
-import org.linqs.psl.database.atom.PersistedAtomManager;
-import org.linqs.psl.database.loading.Inserter;
-import org.linqs.psl.database.rdbms.RDBMSDataStore;
-import org.linqs.psl.database.rdbms.driver.H2DatabaseDriver;
-import org.linqs.psl.database.rdbms.driver.H2DatabaseDriver.Type;
-import org.linqs.psl.grounding.GroundRuleStore;
 import org.linqs.psl.grounding.Grounding;
-import org.linqs.psl.grounding.MemoryGroundRuleStore;
 import org.linqs.psl.model.predicate.StandardPredicate;
 import org.linqs.psl.model.atom.GroundAtom;
+import org.linqs.psl.model.atom.ObservedAtom;
 import org.linqs.psl.model.rule.GroundRule;
 import org.linqs.psl.model.rule.Rule;
+import org.linqs.psl.model.rule.WeightedRule;
 import org.linqs.psl.model.rule.arithmetic.AbstractGroundArithmeticRule;
 import org.linqs.psl.model.rule.logical.AbstractGroundLogicalRule;
 import org.linqs.psl.model.term.Constant;
-import org.linqs.psl.model.term.ConstantType;
-import org.linqs.psl.model.term.UniqueStringID;
-import org.linqs.psl.parser.ModelLoader;
+import org.linqs.psl.model.term.Term;
+import org.linqs.psl.reasoner.term.TermStore;
+import org.linqs.psl.reasoner.term.DummyTermStore;
 import org.linqs.psl.util.Logger;
 import org.linqs.psl.util.StringUtils;
+import org.linqs.psl.util.Version;
+
+import com.fasterxml.jackson.core.util.DefaultIndenter;
+import com.fasterxml.jackson.core.util.DefaultPrettyPrinter;
+import com.fasterxml.jackson.databind.ObjectMapper;
+import com.fasterxml.jackson.databind.SerializationFeature;
 
 import java.util.ArrayList;
 import java.util.HashMap;
-import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
-import java.util.Properties;
 import java.util.Set;
 
 /**
- * A static-only class that gives easy access to PSL's grounding functionality.
- *
- * TODO(eriq): There is a crazy amount of improvements that can be made here,
- * we will just leave this comment instead of pointing out everything.
- * Things like forced options and copied code (e.g. from the Launcher).
- *
- * TODO(eriq): Implement this using the Runtime (add a grounding stage to the runtime).
+ * A interface to PSL's grounding functionality.
  */
-public final class GroundingAPI {
-    public static final String PARTITION_OBS = "observed";
-    public static final String PARTITION_UNOBS = "unobserved";
+public final class GroundingAPI extends Runtime {
+    private static final Logger log = Logger.getLogger(GroundingAPI.class);
 
-    // Static only.
-    public GroundingAPI() {}
+    public static GroundProgram groundStatic(String configPath) {
+        GroundingAPI api = new GroundingAPI();
+        return api.ground(configPath);
+    }
 
-    public static GroundRuleInfo[] ground(
-            String[] ruleStrings,
-            String[] predicateNames, int[] predicateArities,
-            String[][][] observedData, String[][][] unobservedData) {
-        Logger.setLevel("WARN");
+    public static GroundProgram groundStatic(RuntimeConfig config) {
+        GroundingAPI api = new GroundingAPI();
+        return api.ground(config);
+    }
 
-        assert(predicateNames.length == observedData.length);
-        assert(predicateNames.length == unobservedData.length);
+    /**
+     * A static interface specifically meant for methods that provide serialized input and want serialized output
+     * (both in the form of JSON).
+     */
+    public static String serializedGround(String jsonConfig, String basePath) {
+        RuntimeConfig config = RuntimeConfig.fromJSON(jsonConfig, basePath);
+        GroundProgram program = groundStatic(config);
+        return program.toJSON();
+    }
 
-        DataStore dataStore = new RDBMSDataStore(new H2DatabaseDriver(Type.Disk, RuntimeOptions.DB_H2_PATH.defaultValue().toString(), true));
+    public GroundProgram ground(String configPath) {
+        RuntimeConfig config = RuntimeConfig.fromFile(configPath);
+        return ground(config);
+    }
 
-        registerPredicates(predicateNames, predicateArities, dataStore);
+    public GroundProgram ground(RuntimeConfig config) {
+        Config.pushLayer();
 
-        List<Rule> rules = new ArrayList<Rule>(ruleStrings.length);
-        for (String ruleString : ruleStrings) {
-            Rule rule = ModelLoader.loadRule(ruleString);
+        try {
+            return groundInternal(config);
+        } finally {
+            Config.popLayer();
+            cleanup();
+        }
+    }
+
+    private GroundProgram groundInternal(RuntimeConfig config) {
+        // Apply any top-level options found in the config.
+        for (Map.Entry<String, String> entry : config.options.entrySet()) {
+            Config.setProperty(entry.getKey(), entry.getValue(), false);
+        }
+
+        // Specially check if we need to re-init the logger.
+        initLogger();
+
+        log.info("PSL Grounding API Version {}", Version.getFull());
+        config.validate();
+
+        // Ensure that all atoms are stored (unless overwritten).
+        Options.ATOM_STORE_STORE_ALL_ATOMS.set(true);
+
+        // Apply top-level options again after validation (since options may have been changed or added).
+        for (Map.Entry<String, String> entry : config.options.entrySet()) {
+            Config.setProperty(entry.getKey(), entry.getValue(), false);
+        }
+
+        List<Rule> rules = new ArrayList<Rule>();
+        for (Rule rule : config.rules.getRules()) {
             rules.add(rule);
         }
 
-        Set<StandardPredicate> closedPredicates = loadData(dataStore, predicateNames, observedData, unobservedData);
+        DataStore dataStore = initDataStore(config);
+        loadData(dataStore, config, RuntimeConfig.KEY_INFER);
 
-        Partition targetPartition = dataStore.getPartition(PARTITION_UNOBS);
-        Partition observationsPartition = dataStore.getPartition(PARTITION_OBS);
+        Set<StandardPredicate> closedPredicates = config.getClosedPredicates(RuntimeConfig.KEY_INFER);
+
+        Partition targetPartition = dataStore.getPartition(Runtime.PARTITION_NAME_TARGET);
+        Partition observationsPartition = dataStore.getPartition(Runtime.PARTITION_NAME_OBSERVATIONS);
+
         Database database = dataStore.getDatabase(targetPartition, closedPredicates, observationsPartition);
+        AtomStore atomStore = database.getAtomStore();
+        TermStore store = new DummyTermStore(database);
 
-        AtomManager atomManager = new PersistedAtomManager(database);
-        GroundRuleStore groundRuleStore = new MemoryGroundRuleStore();
+        final List<GroundRuleInfo> groundRules = new ArrayList<GroundRuleInfo>();
 
-        Map<GroundAtom, Integer> atomMap = buildAtomMap(predicateNames, observedData, unobservedData, atomManager);
+        Map<Integer, AtomInfo> groundAtoms = null;
+        if (!RuntimeOptions.OUTPUT_ALL_ATOMS.getBoolean()) {
+            groundAtoms = new HashMap<Integer, AtomInfo>();
+        }
 
-        Grounding.groundAll(rules, atomManager, groundRuleStore);
-        GroundRuleInfo[] groundRules = mapGroundRules(rules, atomMap, groundRuleStore);
+        final Map<Integer, AtomInfo> finalGroundAtoms = groundAtoms;
+        Grounding.setGroundRuleCallback(new Grounding.GroundRuleCallback() {
+            public synchronized void call(GroundRule groundRule) {
+                groundRules.add(mapGroundRule(rules.indexOf(groundRule.getRule()), atomStore, groundRule, finalGroundAtoms));
+            }
+        });
 
-        groundRuleStore.close();
+        Grounding.groundAll(rules, store);
+        Grounding.setGroundRuleCallback(null);
+
+        if (groundAtoms == null) {
+            groundAtoms = new HashMap<Integer, AtomInfo>(atomStore.size());
+            for (GroundAtom groundAtom : atomStore) {
+                groundAtoms.put(Integer.valueOf(groundAtom.getIndex()), new AtomInfo(groundAtom));
+            }
+        }
+
+        store.close();
         database.close();
         dataStore.close();
 
-        return groundRules;
+        return new GroundProgram(groundAtoms, groundRules);
     }
 
-    private static void registerPredicates(String[] predicateNames, int[] predicateArities, DataStore dataStore) {
-        for (int i = 0; i < predicateNames.length; i++) {
-            ConstantType[] types = new ConstantType[predicateArities[i]];
-            for (int j = 0; j < types.length; j++) {
-                types[j] = ConstantType.UniqueStringID;
-            }
-
-            StandardPredicate predicate = StandardPredicate.get(predicateNames[i], types);
-            dataStore.registerPredicate(predicate);
-        }
-    }
-
-    private static Set<StandardPredicate> loadData(
-            DataStore dataStore, String[] predicateNames,
-            String[][][] observedData, String[][][] unobservedData) {
-        Set<StandardPredicate> observedPredicates = loadPartition(dataStore, PARTITION_OBS, predicateNames, observedData);
-        Set<StandardPredicate> unobservedPredicates = loadPartition(dataStore, PARTITION_UNOBS, predicateNames, unobservedData);
-
-        observedPredicates.removeAll(unobservedPredicates);
-
-        return observedPredicates;
-    }
-
-    private static Set<StandardPredicate> loadPartition(DataStore dataStore, String partitionName,
-            String[] predicateNames, String[][][] data) {
-        Set<StandardPredicate> usedPredicates = new HashSet<StandardPredicate>(predicateNames.length);
-        Partition partition = dataStore.getPartition(partitionName);
-
-        for (int predicateIndex = 0; predicateIndex < predicateNames.length; predicateIndex++) {
-            if (data[predicateIndex].length == 0) {
-                continue;
-            }
-
-            StandardPredicate predicate = StandardPredicate.get(predicateNames[predicateIndex]);
-            usedPredicates.add(predicate);
-
-            Inserter inserter = dataStore.getInserter(predicate, partition);
-            Object[] insertBuffer = new Object[predicate.getArity()];
-
-            for (String[] row : data[predicateIndex]) {
-                for (int i = 0; i < predicate.getArity(); i++) {
-                    insertBuffer[i] = row[i];
-                }
-
-                if (row.length == predicate.getArity()) {
-                    inserter.insert(insertBuffer);
-                } else {
-                    double truthValue = Double.parseDouble(row[predicate.getArity()]);
-                    inserter.insertValue(truthValue, insertBuffer);
-                }
-            }
+    private GroundRuleInfo mapGroundRule(int ruleIndex, AtomStore store, GroundRule groundRule, Map<Integer, AtomInfo> usedAtoms) {
+        float weight = -1.0f;
+        if (groundRule.getRule().isWeighted()) {
+            weight = ((WeightedRule)groundRule.getRule()).getWeight();
         }
 
-        return usedPredicates;
-    }
-
-    private static Map<GroundAtom, Integer> buildAtomMap(
-            String[] predicateNames,
-            String[][][] observedData, String[][][] unobservedData,
-            AtomManager atomManager) {
-        // Each atom gets mapped in a reversible way to an index.
-        // These indexes are contiguous, go through the predicates in-order, handle obs, and finally unobs.
-        int atomCount = atomManager.getCachedObsCount() + atomManager.getCachedRVACount();
-        Map<GroundAtom, Integer> atomMap = new HashMap<GroundAtom, Integer>(atomCount);
-
-        for (int predicateIndex = 0; predicateIndex < predicateNames.length; predicateIndex++) {
-            StandardPredicate predicate = StandardPredicate.get(predicateNames[predicateIndex]);
-            Constant[] arguments = new Constant[predicate.getArity()];
-
-            for (int rowIndex = 0; rowIndex < observedData[predicateIndex].length; rowIndex++) {
-                for (int i = 0; i < arguments.length; i++) {
-                    arguments[i] = new UniqueStringID(observedData[predicateIndex][rowIndex][i]);
-                }
-
-                GroundAtom atom = atomManager.getAtom(predicate, arguments);
-                atomMap.put(atom, atomMap.size());
-            }
-
-            for (int rowIndex = 0; rowIndex < unobservedData[predicateIndex].length; rowIndex++) {
-                for (int i = 0; i < arguments.length; i++) {
-                    arguments[i] = new UniqueStringID(unobservedData[predicateIndex][rowIndex][i]);
-                }
-
-                GroundAtom atom = atomManager.getAtom(predicate, arguments);
-                atomMap.put(atom, atomMap.size());
-            }
+        if (groundRule instanceof AbstractGroundLogicalRule) {
+            return mapGroundRule(ruleIndex, store, (AbstractGroundLogicalRule)groundRule, weight, usedAtoms);
+        } else if (groundRule instanceof AbstractGroundArithmeticRule) {
+            return mapGroundRule(ruleIndex, store, (AbstractGroundArithmeticRule)groundRule, weight, usedAtoms);
         }
 
-        return atomMap;
+        throw new IllegalStateException("Unknown rule type: " + groundRule.getClass());
     }
 
-    private static GroundRuleInfo[] mapGroundRules(
-            List<Rule> rules,
-            Map<GroundAtom, Integer> atomMap,
-            GroundRuleStore groundRuleStore) {
-        GroundRuleInfo[] infos = new GroundRuleInfo[(int)groundRuleStore.size()];
-
-        int groundRuleCount = 0;
-        for (GroundRule rawGroundRule : groundRuleStore.getGroundRules()) {
-            if (rawGroundRule instanceof AbstractGroundLogicalRule) {
-                infos[groundRuleCount++] = mapLogicalGroundRule(
-                        rules.indexOf(rawGroundRule.getRule()), atomMap, (AbstractGroundLogicalRule)rawGroundRule);
-            } else {
-                infos[groundRuleCount++] = mapArithmeticGroundRule(
-                        rules.indexOf(rawGroundRule.getRule()), atomMap, (AbstractGroundArithmeticRule)rawGroundRule);
-            }
-        }
-
-        return infos;
-    }
-
-    private static GroundRuleInfo mapLogicalGroundRule(
-            int ruleIndex,
-            Map<GroundAtom, Integer> atomMap,
-            AbstractGroundLogicalRule groundRule) {
-        int atomIndex = 0;
+    private GroundRuleInfo mapGroundRule(int ruleIndex, AtomStore store, AbstractGroundLogicalRule groundRule, float weight,
+            Map<Integer, AtomInfo> usedAtoms) {
+        int currentAtom = 0;
         float[] coefficients = new float[groundRule.size()];
         int[] atoms = new int[groundRule.size()];
 
+        // Remember: the negated DNF is tracked, so invert all coefficients.
+
         for (GroundAtom atom : groundRule.getPositiveAtoms()) {
-            coefficients[atomIndex] = 1.0f;
-            atoms[atomIndex] = atomMap.get(atom).intValue();
-            atomIndex++;
+            coefficients[currentAtom] = -1.0f;
+
+            int atomIndex = store.getAtomIndex(atom);
+            atoms[currentAtom] = atomIndex;
+            currentAtom++;
+
+            if (usedAtoms != null) {
+                Integer key = Integer.valueOf(atomIndex);
+                if (!usedAtoms.containsKey(key)) {
+                    usedAtoms.put(key, new AtomInfo(atom));
+                }
+            }
         }
 
         for (GroundAtom atom : groundRule.getNegativeAtoms()) {
-            coefficients[atomIndex] = -1.0f;
-            atoms[atomIndex] = atomMap.get(atom).intValue();
-            atomIndex++;
+            coefficients[currentAtom] = 1.0f;
+
+            int atomIndex = store.getAtomIndex(atom);
+            atoms[currentAtom] = atomIndex;
+            currentAtom++;
+
+            if (usedAtoms != null) {
+                Integer key = Integer.valueOf(atomIndex);
+                if (!usedAtoms.containsKey(key)) {
+                    usedAtoms.put(key, new AtomInfo(atom));
+                }
+            }
         }
 
-        return new GroundRuleInfo(ruleIndex, "|", 0.0f, coefficients, atoms);
+        return new GroundRuleInfo(ruleIndex, "|", weight, 0.0f, coefficients, atoms);
     }
 
-    private static GroundRuleInfo mapArithmeticGroundRule(
-            int ruleIndex,
-            Map<GroundAtom, Integer> atomMap,
-            AbstractGroundArithmeticRule groundRule) {
+    private GroundRuleInfo mapGroundRule(int ruleIndex, AtomStore store, AbstractGroundArithmeticRule groundRule, float weight,
+            Map<Integer, AtomInfo> usedAtoms) {
         GroundAtom[] rawAtoms = groundRule.getOrderedAtoms();
         int[] atoms = new int[rawAtoms.length];
 
         for (int i = 0; i < rawAtoms.length; i++) {
-            atoms[i] = atomMap.get(rawAtoms[i]).intValue();
+            int atomIndex = store.getAtomIndex(rawAtoms[i]);
+            atoms[i] = atomIndex;
+
+            if (usedAtoms != null) {
+                Integer key = Integer.valueOf(atomIndex);
+                if (!usedAtoms.containsKey(key)) {
+                    usedAtoms.put(key, new AtomInfo(rawAtoms[i]));
+                }
+            }
         }
 
-        return new GroundRuleInfo(ruleIndex, groundRule.getComparator().toString(), groundRule.getConstant(),
+        return new GroundRuleInfo(ruleIndex, groundRule.getComparator().toString(), weight, groundRule.getConstant(),
                 groundRule.getCoefficients(), atoms);
+    }
+
+    public static final class GroundProgram {
+        public Map<Integer, AtomInfo> atoms;
+        public List<GroundRuleInfo> groundRules;
+
+        public GroundProgram(Map<Integer, AtomInfo> atoms, List<GroundRuleInfo> groundRules) {
+            this.atoms = atoms;
+            this.groundRules = groundRules;
+        }
+
+        @Override
+        public String toString() {
+            return toJSON();
+        }
+
+        public String toJSON() {
+            ObjectMapper mapper = new ObjectMapper();
+
+            mapper.enable(SerializationFeature.INDENT_OUTPUT);
+            mapper.enable(SerializationFeature.ORDER_MAP_ENTRIES_BY_KEYS);
+
+            DefaultPrettyPrinter printer = new DefaultPrettyPrinter().withObjectIndenter(new DefaultIndenter("    ", "\n"));
+
+            try {
+                return mapper.writer(printer).writeValueAsString(this);
+            } catch (Exception ex) {
+                throw new RuntimeException(ex);
+            }
+        }
+    }
+
+    public static final class AtomInfo {
+        public String predicate;
+        public String[] arguments;
+        public float value;
+        public boolean observed;
+
+        public AtomInfo(GroundAtom atom) {
+            predicate = atom.getPredicate().getName();
+            value = atom.getValue();
+            observed = (atom instanceof ObservedAtom);
+
+            arguments = new String[atom.getArity()];
+            Term[] terms = atom.getArguments();
+            for (int i = 0; i < terms.length; i++) {
+                arguments[i] = ((Constant)terms[i]).rawToString();
+            }
+        }
     }
 
     public static final class GroundRuleInfo {
         public int ruleIndex;
         public String operator;
+        public float weight;
         public float constant;
         public float[] coefficients;
         public int[] atoms;
 
-        public GroundRuleInfo(int ruleIndex, String operator, float constant, float[] coefficients, int[] atoms) {
+        public GroundRuleInfo(int ruleIndex, String operator, float weight, float constant, float[] coefficients, int[] atoms) {
             this.ruleIndex = ruleIndex;
             this.operator = operator;
+            this.weight = weight;
             this.constant = constant;
             this.coefficients = coefficients;
             this.atoms = atoms;
@@ -273,9 +307,19 @@ public final class GroundingAPI {
 
         public String toString() {
             return String.format(
-                    "Rule: %d, Operator: %s, Constant: %f, coefficients: [%s], atoms: [%s].",
-                    ruleIndex, operator, constant,
+                    "Rule Type: %s, Weight: %f, Constant: %f, coefficients: [%s], atoms: [%s].",
+                    operator, weight, constant,
                     StringUtils.join(", ", coefficients), StringUtils.join(", ", atoms));
         }
+    }
+
+    public static void main(String[] args) {
+        if (args == null || args.length != 1) {
+            System.out.println("USAGE: " + GroundingAPI.class + " <path to JSON config>");
+            return;
+        }
+
+        GroundProgram program = GroundingAPI.groundStatic(args[0]);
+        System.out.println(program);
     }
 }

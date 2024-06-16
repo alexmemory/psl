@@ -1,7 +1,7 @@
 /*
  * This file is part of the PSL software.
  * Copyright 2011-2015 University of Maryland
- * Copyright 2013-2022 The Regents of the University of California
+ * Copyright 2013-2023 The Regents of the University of California
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -18,7 +18,8 @@
 package org.linqs.psl.config;
 
 import org.linqs.psl.application.inference.mpe.ADMMInference;
-import org.linqs.psl.application.learning.weight.maxlikelihood.MaxLikelihoodMPE;
+import org.linqs.psl.application.learning.weight.gradient.optimalvalue.StructuredPerceptron;
+import org.linqs.psl.runtime.Runtime;
 
 import org.linqs.psl.util.SystemUtils;
 
@@ -26,13 +27,6 @@ import org.linqs.psl.util.SystemUtils;
  * Additional options for the PSL runtime.
  */
 public class RuntimeOptions {
-    public static final Option DB_H2 = new Option(
-        "runtime.db.h2",
-        true,
-        "Use an H2 database."
-        + " Overwritten when using a PostgreSQL database."
-    );
-
     public static final Option DB_H2_PATH = new Option(
         "runtime.db.h2.path",
         SystemUtils.getTempDir("psl_h2"),
@@ -51,18 +45,29 @@ public class RuntimeOptions {
         "Assume all unique identifiers are integers (UniqueIntID) instead of strings (UniqueStringID)."
     );
 
-    public static final Option DB_PG = new Option(
-        "runtime.db.pg",
-        false,
-        "Use a PostgreSQL database."
-        + " Overrides any H2 database."
-    );
-
     public static final Option DB_PG_NAME = new Option(
         "runtime.db.pg.name",
         "psl",
         "Name for the PostgreSQL database."
         + " Not compatible with H2 options."
+    );
+
+    public static final Option DB_SQLITE_PATH = new Option(
+        "runtime.db.sqlite.path",
+        SystemUtils.getTempDir("psl_sqlite"),
+        "Path for SQLite database file."
+    );
+
+    public static final Option DB_SQLITE_INMEMORY = new Option(
+        "runtime.db.sqlite.inmemory",
+        true,
+        "Whether to put the SQLite database in memory (true) or on disk (false)."
+    );
+
+    public static final Option DB_TYPE = new Option(
+        "runtime.db.type",
+        Runtime.DatabaseType.SQLite.toString(),
+        "The type of database to use. See the Runtime.DatabaseType enum."
     );
 
     public static final Option HELP = new Option(
@@ -83,31 +88,16 @@ public class RuntimeOptions {
         "Commit inferred values to the database."
     );
 
-    public static final Option INFERENCE_DATA_PATH = new Option(
-        "runtime.inference.data.path",
-        null,
-        "Path to a PSL data file to use for infernece."
-    );
-
-    public static final Option INFERENCE_EVAL = new Option(
-        "runtime.inference.eval",
-        null,
-        "A comma-separated list of all the evaluators to run after infernece."
-        + " Evaluators are run on any open predicate with a 'truth' partition."
-    );
-
     public static final Option INFERENCE_METHOD = new Option(
         "runtime.inference.method",
         ADMMInference.class.getName(),
         "Use the specified InferenceApplication when running inference."
     );
 
-    public static final Option INFERENCE_MODEL_PATH = new Option(
-        "runtime.inference.model.path",
-        null,
-        "Path to a PSL model file to use for infernece."
-        + " Existance of file will not be checked until inference is ready to run."
-        + " If not specified and learning is run, then the learned model will be used."
+    public static final Option INFERENCE_OUTPUT_RESULTS = new Option(
+        "runtime.inference.output.results",
+        true,
+        "Whether to output the inferred atoms after inference."
     );
 
     public static final Option INFERENCE_OUTPUT_RESULTS_DIR = new Option(
@@ -126,20 +116,13 @@ public class RuntimeOptions {
         "runtime.inference.output.groundrules",
         false,
         "Whether to output ground rules before inference."
-        + "The " + INFERENCE_OUTPUT_GROUNDRULES_PATH.name() + " option controls where ground rules are output."
+        + " The " + INFERENCE_OUTPUT_GROUNDRULES_PATH.name() + " option controls where ground rules are output."
     );
 
-    public static final Option INFERENCE_OUTPUT_SATISFACTIONS_PATH = new Option(
-        "runtime.inference.output.satisfactions.path",
-        null,
-        "If ground rules with satisfaction are output, place them in at the specified path (or STDOUT if not specified)."
-    );
-
-    public static final Option INFERENCE_OUTPUT_SATISFACTIONS = new Option(
-        "runtime.inference.output.satisfactions",
+    public static final Option INFERENCE_CLEAR_RULES = new Option(
+        "runtime.inference.clearrules",
         false,
-        "Whether to output ground rules with satisfaction after inference."
-        + "The " + INFERENCE_OUTPUT_SATISFACTIONS_PATH.name() + " option controls where ground rules are output."
+        "Clear learning rules before inference. Useful when switching models between train and test."
     );
 
     public static final Option LEARN = new Option(
@@ -148,22 +131,16 @@ public class RuntimeOptions {
         "Run learning."
     );
 
-    public static final Option LEARN_DATA_PATH = new Option(
-        "runtime.learn.data.path",
-        null,
-        "Path to a PSL data file to use for learning."
+    public static final Option VALIDATION = new Option(
+        "runtime.validation",
+        false,
+        "Run validation while learning."
     );
 
     public static final Option LEARN_METHOD = new Option(
         "runtime.learn.method",
-        MaxLikelihoodMPE.class.getName(),
+        StructuredPerceptron.class.getName(),
         "Use the specified WeightLearningApplication when running learning."
-    );
-
-    public static final Option LEARN_MODEL_PATH = new Option(
-        "runtime.learn.model.path",
-        null,
-        "Path to a PSL model file to use for learning."
     );
 
     public static final Option LEARN_OUTPUT_MODEL_PATH = new Option(
@@ -178,10 +155,11 @@ public class RuntimeOptions {
         "The logging level."
     );
 
-    public static final Option PROPERTIES_PATH = new Option(
-        "runtime.output.properties.path",
-        null,
-        "A path to an additional properties file."
+    public static final Option OUTPUT_ALL_ATOMS = new Option(
+        "runtime.output.atoms.all",
+        false,
+        "Instead of just outputting relevant atoms, output all atoms in the atom store."
+        + " The exact semantics depends on the process outputting atoms, e.g., inference of the grounding API."
     );
 
     public static final Option VERSION = new Option(

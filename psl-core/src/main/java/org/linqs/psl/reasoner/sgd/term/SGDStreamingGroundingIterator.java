@@ -1,7 +1,7 @@
 /**
  * This file is part of the PSL software.
  * Copyright 2011-2015 University of Maryland
- * Copyright 2013-2022 The Regents of the University of California
+ * Copyright 2013-2023 The Regents of the University of California
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -17,10 +17,8 @@
  */
 package org.linqs.psl.reasoner.sgd.term;
 
-import org.linqs.psl.database.atom.AtomManager;
 import org.linqs.psl.model.atom.GroundAtom;
 import org.linqs.psl.model.rule.Rule;
-import org.linqs.psl.reasoner.term.HyperplaneTermGenerator;
 import org.linqs.psl.reasoner.term.streaming.StreamingGroundingIterator;
 import org.linqs.psl.util.RuntimeStats;
 
@@ -32,11 +30,8 @@ import java.util.List;
 public class SGDStreamingGroundingIterator extends StreamingGroundingIterator<SGDObjectiveTerm> {
     public SGDStreamingGroundingIterator(
             SGDStreamingTermStore parentStore, List<Rule> rules,
-            AtomManager atomManager, HyperplaneTermGenerator<SGDObjectiveTerm, GroundAtom> termGenerator,
             List<SGDObjectiveTerm> termCache, List<SGDObjectiveTerm> termPool,
-            ByteBuffer termBuffer, ByteBuffer volatileBuffer,
-            int pageSize, int numPages) {
-        super(parentStore, rules, atomManager, termGenerator, termCache, termPool, termBuffer, volatileBuffer,
-                pageSize, numPages);
+            ByteBuffer termBuffer, int pageSize, int numPages) {
+        super(parentStore, rules, termCache, termPool, termBuffer, pageSize, numPages);
     }
 }

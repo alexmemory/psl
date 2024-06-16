@@ -1,7 +1,7 @@
 /*
  * This file is part of the PSL software.
  * Copyright 2011-2015 University of Maryland
- * Copyright 2013-2022 The Regents of the University of California
+ * Copyright 2013-2023 The Regents of the University of California
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -20,11 +20,9 @@ package org.linqs.psl.evaluation.statistics;
 import org.linqs.psl.application.learning.weight.TrainingMap;
 import org.linqs.psl.database.DataStore;
 import org.linqs.psl.database.Database;
+import org.linqs.psl.database.DatabaseTestUtil;
 import org.linqs.psl.database.Partition;
-import org.linqs.psl.database.atom.PersistedAtomManager;
 import org.linqs.psl.database.loading.Inserter;
-import org.linqs.psl.database.rdbms.RDBMSDataStore;
-import org.linqs.psl.database.rdbms.driver.H2DatabaseDriver;
 import org.linqs.psl.model.predicate.StandardPredicate;
 import org.linqs.psl.model.term.ConstantType;
 import org.linqs.psl.model.term.UniqueIntID;
@@ -62,8 +60,7 @@ public abstract class EvaluatorTest<T extends Evaluator> extends PSLBaseTest {
     protected void init(float[] predictions, float[] truth) {
         cleanup();
 
-        dataStore = new RDBMSDataStore(new H2DatabaseDriver(
-                H2DatabaseDriver.Type.Memory, this.getClass().getName(), true));
+        dataStore = DatabaseTestUtil.getDataStore();
 
         predicate = StandardPredicate.get(
                 "EvaulatorTestPredicate",
@@ -75,20 +72,19 @@ public abstract class EvaluatorTest<T extends Evaluator> extends PSLBaseTest {
 
         Inserter inserter = dataStore.getInserter(predicate, targetPartition);
         for (int i = 0; i < predictions.length; i++) {
-            inserter.insertValue(predictions[i], new UniqueIntID(i), new UniqueIntID(i));
+            inserter.insertValueRaw(predictions[i], new UniqueIntID(i), new UniqueIntID(i));
         }
 
         inserter = dataStore.getInserter(predicate, truthPartition);
         for (int i = 0; i < truth.length; i++) {
-            inserter.insertValue(truth[i], new UniqueIntID(i), new UniqueIntID(i));
+            inserter.insertValueRaw(truth[i], new UniqueIntID(i), new UniqueIntID(i));
         }
 
         // Redefine the truth database with no atoms in the write partition.
         Database resultsDB = dataStore.getDatabase(targetPartition);
         Database truthDB = dataStore.getDatabase(truthPartition, dataStore.getRegisteredPredicates());
 
-        PersistedAtomManager atomManager = new PersistedAtomManager(resultsDB);
-        trainingMap = new TrainingMap(atomManager, truthDB);
+        trainingMap = new TrainingMap(resultsDB, truthDB);
 
         // Since we only need the map, we can close all the databases.
         resultsDB.close();

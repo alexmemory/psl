@@ -1,7 +1,7 @@
 /*
  * This file is part of the PSL software.
  * Copyright 2011-2015 University of Maryland
- * Copyright 2013-2022 The Regents of the University of California
+ * Copyright 2013-2023 The Regents of the University of California
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -20,7 +20,6 @@ package org.linqs.psl.database.rdbms;
 import org.linqs.psl.application.inference.InferenceApplication;
 import org.linqs.psl.application.inference.mpe.MPEInference;
 import org.linqs.psl.database.Database;
-import org.linqs.psl.database.ReadableDatabase;
 import org.linqs.psl.model.atom.QueryAtom;
 import org.linqs.psl.model.formula.Conjunction;
 import org.linqs.psl.model.formula.Formula;
@@ -162,9 +161,9 @@ public class Formula2SQLTest extends PSLBaseTest {
             return args;
         }
 
-        public synchronized double getValue(ReadableDatabase db, Constant... args) {
+        public synchronized float getValue(Database db, Constant... args) {
             callCount++;
-            return 1;
+            return 1.0f;
         }
 
         public int getCallCount() {

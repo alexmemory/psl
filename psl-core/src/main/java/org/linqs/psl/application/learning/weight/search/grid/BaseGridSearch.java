@@ -1,7 +1,7 @@
 /*
  * This file is part of the PSL software.
  * Copyright 2011-2015 University of Maryland
- * Copyright 2013-2022 The Regents of the University of California
+ * Copyright 2013-2023 The Regents of the University of California
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -18,8 +18,8 @@
 package org.linqs.psl.application.learning.weight.search.grid;
 
 import org.linqs.psl.application.learning.weight.WeightLearningApplication;
+import org.linqs.psl.config.Options;
 import org.linqs.psl.database.Database;
-import org.linqs.psl.model.Model;
 import org.linqs.psl.model.rule.Rule;
 import org.linqs.psl.util.Logger;
 import org.linqs.psl.util.MathUtils;
@@ -61,12 +61,9 @@ public abstract class BaseGridSearch extends WeightLearningApplication {
      */
     protected String currentLocation;
 
-    public BaseGridSearch(Model model, Database rvDB, Database observedDB) {
-        this(model.getRules(), rvDB, observedDB);
-    }
-
-    public BaseGridSearch(List<Rule> rules, Database rvDB, Database observedDB) {
-        super(rules, rvDB, observedDB);
+    public BaseGridSearch(List<Rule> rules, Database trainTargetDatabase, Database trainTruthDatabase,
+                          Database validationTargetDatabase, Database validationTruthDatabase, boolean runValidation) {
+        super(rules, trainTargetDatabase, trainTruthDatabase, validationTargetDatabase, validationTruthDatabase, runValidation);
 
         maxNumLocations = 0;
         numLocations = maxNumLocations;
@@ -74,10 +71,20 @@ public abstract class BaseGridSearch extends WeightLearningApplication {
         objectives = new HashMap<String, Double>();
 
         currentLocation = null;
+
+        if (this.runValidation) {
+            throw new IllegalArgumentException("Validation is not supported by GridSearch weight learning applications.");
+        }
     }
 
     @Override
     protected void doLearn() {
+        if (evaluation == null) {
+            throw new IllegalStateException(String.format(
+                    "No evaluation has been set for weight learning method (%s), which is required for search-based methods.",
+                    getClass().getName()));
+        }
+
         double bestObjective = -1.0;
         float[] bestWeights = new float[mutableRules.size()];
         float[] weights = new float[mutableRules.size()];
@@ -116,7 +123,7 @@ public abstract class BaseGridSearch extends WeightLearningApplication {
             log.trace("Weights: {}", weights);
 
             // The weights have changed, so we are no longer in an MPE state.
-            inMPEState = false;
+            inTrainingMAPState = false;
 
             double objective = inspectLocation(weights);
 
@@ -139,7 +146,7 @@ public abstract class BaseGridSearch extends WeightLearningApplication {
         }
 
         // The weights have changed, so we are no longer in an MPE state.
-        inMPEState = false;
+        inTrainingMAPState = false;
     }
 
     /**
@@ -148,16 +155,14 @@ public abstract class BaseGridSearch extends WeightLearningApplication {
      * The rules have already been set with the given weights, they are only passed in so the method
      * has a chance to modify them before the result is stored.
      * This is a prime method for child classes to override.
-     * Implementers should make sure to correct (negate) the value that comes back from the Evaluator
-     * if lower is better for that evaluator.
      * @param weights
      */
     protected double inspectLocation(float[] weights) {
-        computeMPEState();
+        computeTrainingMAPState();
 
-        evaluator.compute(trainingMap);
+        evaluation.compute(trainingMap);
 
-        return -1.0 * evaluator.getNormalizedRepMetric();
+        return -1.0 * evaluation.getNormalizedRepMetric();
     }
 
     /**
